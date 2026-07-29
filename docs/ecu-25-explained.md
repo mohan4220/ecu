@@ -25,6 +25,43 @@ A **25 kVA diesel genset** is:
 - An **alternator** bolted to the engine, producing **415 V line-to-line, 3-phase, 50 Hz** when the engine turns at 1500 RPM. (Frequency is locked to speed: a 4-pole alternator gives 50 Hz at exactly 1500 RPM. This is why speed and frequency protections are really the same thing measured two ways.)
 - A **24 V battery system** — battery, starter motor, and a small **charge alternator** (like a car alternator) that recharges the battery while the engine runs.
 
+### The complete installation — single-line view
+
+```
+   UTILITY MAINS (415V 3ph)                DIESEL GENSET
+   L1 L2 L3 N                              ┌─────────────────────────────────────┐
+        │                                  │            fuel solenoid (K1)       │
+        │                                  │                  │                  │
+        │                                  │              ┌───▼────┐   shaft  ┌──┴──────┐
+        │                                  │  starter ───►│ ENGINE ├══════════► ALTERNATOR
+        │                                  │  motor (K2)  └───┬────┘          └──┬──────┘
+        │                                  │                  │ flywheel         │ 415V 3ph
+        │                                  │           MPU ◄──┘ teeth            │
+        │                                  │  24V BATTERY ◄── charge alternator  │
+        │                                  └─────────────────────────────────────┘
+        │                                                                        │
+        ▼                                                                        ▼
+   ╔═══════════╗                                                          ╔═══════════╗
+   ║ KM mains  ║◄── coil driven by K4                  coil driven by K3 ─►║ KG gen    ║
+   ║ contactor ║        INTERLOCKED: never both closed                    ║ contactor ║
+   ╚═════╤═════╝                                                          ╚═════╤═════╝
+         │                            ┌─────────┐                               │
+         └────────────────┬──────────►│  LOAD   │◄───────────┬──────────────────┘
+                          │           │(building)│           │
+                         CTs ─────────└─────────┘            │
+                          │                                  │
+                          ▼                                  ▼
+                ┌────────────────────────────────────────────────┐
+                │                    ECU-25                      │
+                │ senses: mains V, gen V, load I (CTs), senders, │
+                │         RPM, battery, D+, switches             │
+                │ drives:  K1 fuel · K2 starter · K3/K4 contactor│
+                │         coils · K5 horn · K6 glow              │
+                └────────────────────────────────────────────────┘
+```
+
+One picture, whole job: watch both power sources, run the engine, and decide which contactor feeds the load.
+
 ---
 
 ## 2. System Architecture — Why Two Boards
@@ -51,6 +88,31 @@ A **25 kVA diesel genset** is:
 
 **Why 4 layers on the main board?** A PCB can have 2, 4, 6+ copper layers. With 4 layers we dedicate one inner layer to a solid **ground plane** and one to power. A continuous ground plane gives every signal a low-inductance return path directly underneath it. That matters here because this one board mixes: a switching converter (fast dV/dt edges), precision analog measurement (millivolt-level accuracy wanted), relay switching (arcs and coil kickback), and mains-frequency high voltage. On a 2-layer board, return currents share long looping paths, they couple into each other, and the analog readings get noisy. Four layers is the cheapest robust answer; commercial ECUs use 4–8.
 
+### Main board — internal signal flow
+
+```
+ FIELD WIRING            CONDITIONING                 MCU                  OUTPUT STAGE      FIELD WIRING
+ ────────────            ────────────                 ───                  ────────────      ────────────
+ 24V battery ──────► fuse·TVS·revFET ► buck 5V ► LDO 3.3V ──── power to everything
+                                                       │
+ 8x switches ──────► divider+clamp+RC ─────────────► GPIO
+ 3x senders ───────► I-source + filter ────────────► ADC          STM32F407
+ battery V, D+ ────► dividers ─────────────────────► ADC        ┌───────────┐
+ MPU (RPM) ────────► comparator+hysteresis ────────► TIM capture│ engine_fsm│
+                                                                │ amf_fsm   │
+ gen L1 L2 L3 ─────► 1.3MΩ dividers + bias ────────► ADC1 ┐    │ protection│──► FET drivers ──► K1 fuel solenoid
+ mains L1 L2 L3 ───► 1.3MΩ dividers + bias ────────► ADC2 ├sim.│ metering  │        (x6)       K2 starter
+ 3x CT 5A ─────────► burden + bias ────────────────► ADC3 ┘    │ hmi/comms │                   K3 gen contactor
+                                                                └───────────┘                   K4 mains contactor
+ SWD debug ◄───────────────────────────────────────► SWD              │                        K5 alarm horn
+ CAN bus  ◄──────── TJA1051 transceiver ◄──────────► CAN1             │                        K6 glow plugs
+ RS485 bus ◄─────── THVD1450 transceiver ◄─────────► USART            ▼
+                                                              SPI ► EEPROM (config, fault log)
+                                                              SPI ► ribbon ► DISPLAY BOARD
+```
+
+Read it left to right: raw field signals enter, each gets tamed by its conditioning circuit, the MCU decides, decisions leave through relay contacts. Every section of this document below explains one row of this picture.
+
 ---
 
 ## 3. Power Supply — Surviving the 24 V Vehicle Environment
@@ -71,6 +133,25 @@ The battery rail on an engine is one of the nastiest electrical environments in 
 
 Relevant standard (for awareness, not certification): **ISO 7637-2** defines these transient pulses formally.
 
+What the "24 V" rail actually looks like over a start/stop cycle:
+
+```
+ V
+100┤                                  ╭╮ load dump — UNPROTECTED could reach here
+   │                                  ││
+ 53┤ · · · · · · · · · · · · · · · · ·││· · TVS clamps it to ~53 V
+   │                                  ││
+ 32┤            charging              │╰──╮
+ 28┤        ╭─────────────────────────╯   ╰────
+ 24┤────╮   │                                    nominal
+   │    │   │
+ 10┤    ╰╮ ╭╯  ◄── crank dip (starter draws 100s of amps)
+  9┤     ╰─╯       board must stay alive through this
+   └──────┬───┬───────────────┬──────────────── t
+        crank engine        battery lead
+              fires         knocked off
+```
+
 ### 3.2 Each protection element
 
 - **Fuse (5 A blade type).** Last-resort protection: if something on the board fails short, the fuse opens before the wiring harness catches fire. It protects the *wiring*, not the electronics — fuses are far too slow to save semiconductors.
@@ -78,6 +159,20 @@ Relevant standard (for awareness, not certification): **ISO 7637-2** defines the
 - **TVS diode (SMCJ33CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (33 V) it is invisible. When a transient exceeds its breakdown (~36–40 V) it avalanches and clamps the rail (clamping ~53 V at rated pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
 
 - **Reverse-polarity P-channel MOSFET.** The textbook answer is a series diode — but a diode drops ~0.7 V continuously, wasting power and reducing headroom during crank dips. The production trick: a **P-MOSFET with source toward the load, gate pulled to ground**. With correct battery polarity, the gate is ~24 V below the source, the FET turns fully on, and drop is just I×R_DS(on) — millivolts. With reversed battery, the gate-source voltage is the wrong polarity, the FET stays off, and (with the body diode oriented to block) no current flows. A zener protects the gate from exceeding ±V_GS(max).
+
+  ```
+                 P-channel MOSFET
+              D ┌──────────┐ S
+   VBAT ────────┤   ─►|─   ├────────┬─────► +24V_PROT (to buck)
+   (fused,      └────┬─────┘        │       body diode conducts first,
+    TVS-clamped)     │gate          │       then FET turns on and
+                     ├──[zener]─────┘       shorts it out (mV drop)
+                     │
+                   [100k]
+                     │
+                    GND        reversed battery → V_GS wrong polarity
+                               → FET off, body diode blocks → no current
+  ```
 
 - **Ferrite bead + capacitors.** A ferrite bead is a lossy inductor: near-zero resistance at DC, but it turns high-frequency noise (MHz+) into heat. Combined with capacitors on both sides it forms a low-pass π-filter — keeping engine electrical noise out of the board, and keeping our buck converter's switching noise from radiating back up the battery cable (an EMC requirement).
 
@@ -139,6 +234,25 @@ These read **switches**: contacts that are either open or closed. On the engine 
 3. **RC low-pass filter (~1 ms)** — absorbs fast noise bursts.
 4. **Firmware debounce** — a mechanical contact physically bounces for a few ms when it closes; firmware requires N consecutive identical samples before accepting a change.
 
+One channel, end to end:
+
+```
+  FIELD (harness, metres of wire)  │            ON BOARD
+                                   │        +3.3V
+  +24V ──┐                         │          │
+          \  switch                │         ─┴─ clamp diode
+           \ (e-stop, oil          │          │
+  ──────────┴── pressure, ...) ────┼──[R 47k]─┼──[R 10k]──┬──────► MCU GPIO
+                                   │          │           │        (firmware
+                                   │       [R 10k]    [C 100nF]     debounce)
+                                   │          │           │
+                                   │         ─┴─ clamp   GND
+                                   │          │  diode
+                                   │         GND
+                                   │   divider scales 24V→3.3V,
+                                   │   diodes eat spikes, RC eats noise
+```
+
 **Configurable active-high/low:** some senders switch to battery positive, some switch to ground, depending on the engine's wiring convention. Firmware lets each input's polarity and function be assigned in the config menu — this is what makes a controller "universal" across engine brands.
 
 ---
@@ -158,6 +272,24 @@ Engine instrumentation sensors are called **senders** (the name comes from "send
 Feed the sender a **known current** from a precision current source (derived from the 5 V rail), and measure the voltage across it with the ADC: R = V/I. Why a current source instead of a simple pull-up resistor? With a plain pull-up, the transfer curve V(R) is nonlinear and its slope depends on the pull-up's tolerance and the 5 V rail accuracy. A current source makes V directly proportional to R — easier math, better accuracy at the low-Ω end where the oil-pressure curve lives.
 
 Each channel also gets an RC anti-alias filter and clamp diodes (the wire to a sender can short to battery positive in a chafed harness — the input must survive 24 V indefinitely).
+
+```
+   +5V
+    │
+ ┌──┴──────────┐
+ │ precision   │  known I (a few mA)
+ │ current src │
+ └──┬──────────┘
+    ├────[clamp diodes]────[R]──┬──────► ADC   →  R_sender = V/I
+    │                           │              →  table lookup
+    │ wire to engine        [C filter]         →  bar/°C/litres
+    ▼                           │
+ ┌─────────┐                   GND
+ │ sender  │ 10–184Ω (oil), NTC (temp), 0–190Ω (fuel)
+ └────┬────┘
+      ▼
+  engine block = ground
+```
 
 **Curves in firmware:** the resistance→pressure or resistance→temperature relationship is stored as an interpolation table in config. Different engine brands use different sender curves; making the table editable makes the hardware universal.
 
@@ -182,6 +314,20 @@ The MCU timer needs clean logic edges. The raw MPU signal is a variable-amplitud
 2. Feed it to an **LM2903 comparator** configured with **hysteresis** (a Schmitt trigger): the switching threshold moves apart in the two directions, e.g. rise above +100 mV to go high, fall below −100 mV to go low. Without hysteresis, noise riding on the signal near the threshold produces bursts of false edges — the RPM reading would jump around and could falsely trigger overspeed. With hysteresis, one tooth = exactly one clean edge.
 3. The comparator output goes to an STM32 **timer input-capture** channel. The timer timestamps each edge in hardware; firmware computes the period between edges → frequency → RPM = (edge frequency ÷ number of flywheel teeth) × 60. Tooth count is a config parameter.
 
+```
+ flywheel teeth ►  MPU coil ► AC-couple ► clamp ► LM2903 + hysteresis ► TIM capture
+
+ raw MPU signal (amplitude grows with speed):
+      cranking…              …rated speed
+     ∿∿∿ small          ／＼    ／＼    ／＼   tens of volts
+    ~~~~~~~~~~~~~~~    ／    ＼／    ＼／    ＼
+                     upper threshold ┈┈┈┈┈┈┈┈┈┈  +100 mV ┐ hysteresis band:
+                     lower threshold ┈┈┈┈┈┈┈┈┈┈  −100 mV ┘ noise can't retrigger
+ comparator out:
+     ▁▁┌─┐▁▁┌─┐▁▁      ▁▁┌──┐▁▁┌──┐▁▁    exactly one clean edge per tooth
+       └─┘  └─┘          └──┘  └──┘      period between edges → RPM
+```
+
 **W-terminal alternative:** the charge alternator's "W" terminal outputs a pulse train proportional to engine speed (from one stator phase). It is a cheaper RPM source (no MPU to buy) but less precise. A jumper lets either source use the same conditioning path.
 
 **Why RPM matters so much:** crank disconnect (detect "engine has fired, release the starter" — engaging a starter into a running engine destroys the starter pinion), underspeed/overspeed protection, and a sanity cross-check against generator frequency.
@@ -200,6 +346,24 @@ Each channel is a **resistive voltage divider with ~1.3 MΩ total top resistance
 - **~1.3 MΩ means ~0.18 mA flows** — the divider dissipates ~45 mW and presents negligible load. There is **no galvanic isolation**: the board's ground is referenced to the AC neutral through the measurement network. This is exactly how DSE/ComAp-class controllers do it — it is safe *if* creepage/clearance rules are respected and the enclosure/terminals prevent contact. (The expensive alternative — voltage transformers or isolation amplifiers per channel — adds cost and drift, and industry practice omits it at this product class.)
 - **Mid-rail bias:** the AC signal swings negative, but the ADC only accepts 0–3.3 V. So the divided signal is superimposed on a **1.65 V DC bias** (half rail). The ADC sees a small sine centred on 1.65 V; firmware subtracts the offset. 
 - **RC anti-alias filter:** before any sampled system, frequencies above half the sampling rate must be attenuated or they **alias** — fold back and masquerade as low frequencies (Nyquist). A simple RC with cutoff well above 50 Hz but well below the sampling rate suffices.
+
+One AC channel (same circuit ×6):
+
+```
+ L1 in                the divider chain (≥4 series resistors:
+ (±340V pk)            voltage rating + creepage distance)
+   ●──[330k]──[330k]──[330k]──[330k]──┬────[R]────┬─────► ADC
+                ~1.3MΩ total          │           │
+                                   [R bot]    [C filter]
+                                      │           │
+                                      ●───────────┘
+                                      │
+                              bias node = 1.65V        what the ADC sees:
+                              (from 3.3V/2 divider     3.3V ┤
+                               + buffer)               1.65V┤∿∿∿∿∿  small sine
+                                      │                     │       centred on
+ N (neutral) ●────────────────────── AGND               0V └────── mid-rail
+```
 
 ### 8.2 Creepage, clearance, and layout separation
 
@@ -228,6 +392,22 @@ A **current transformer** is a toroidal magnetic core clipped around a power cab
 
 Per channel: the 5 A secondary passes through a **low-ohm burden resistor** on the board, converting current to a small voltage (a fraction of a volt at rated current — keeps burden dissipation and CT accuracy comfortable); this voltage is biased to the 1.65 V mid-rail, RC-filtered, and sampled. The **CT ratio** (e.g. 200/5) is a config parameter; firmware multiplies back to real amps.
 
+```
+ load cable (up to 200A) ─────────────────────►  (cable = 1-turn primary)
+             passes through
+              ╔═════════╗
+              ║ CT core ║   200:5 ratio
+              ╚══╤═══╤══╝
+        secondary│   │ 0–5A
+                 │   │
+             ┌───┴───┴───┐ on board
+             │  burden R │ low-ohm → small voltage    ⚠ never open a live
+             └───┬───┬───┘                              CT secondary —
+                 │   └────[R]──┬──► ADC                 short it first
+             bias 1.65V     [C]│
+                               GND
+```
+
 ### 9.3 What firmware computes
 
 Sampling each phase's voltage and current **simultaneously** (the triple-ADC feature), firmware computes: RMS current per phase, **active power** P = mean(v·i), **apparent power** S = V_RMS·I_RMS, **power factor** PF = P/S, kW/kVA totals, and accumulated **kWh**. Plus overcurrent protection with a time delay (short overloads are normal — motor starting — sustained overload is not).
@@ -239,6 +419,21 @@ Sampling each phase's voltage and current **simultaneously** (the triple-ADC fea
 Six electromechanical relays, each driven by a logic-level N-channel MOSFET from an MCU pin, each coil with a **flyback diode**.
 
 **Flyback refresher:** a relay coil is an inductor. When the driving FET switches off, the coil current cannot stop instantly (V = L·di/dt); the collapsing field drives the FET's drain to destructive voltages. A diode across the coil gives that current a circulating path, clamping the spike to one diode drop. Non-negotiable on every coil.
+
+```
+                +5V
+                 │
+        ┌────────┤
+        │        │
+     [flyback   ┌┴┐ relay          relay contacts ──► terminal block
+      diode ▲]  │ │ coil           (fuel solenoid / starter / contactor
+        │       └┬┘                 coil / horn / glow — see table)
+        └────────┤
+                 │ drain
+ MCU pin ──[R]──┤► gate   N-FET (logic level)
+                 │ source
+                GND
+```
 
 The assignments:
 
@@ -260,6 +455,19 @@ The assignments:
 ### 11.1 CAN bus + J1939
 
 **CAN (Controller Area Network)** — the automotive field bus. Refresher: a two-wire differential bus (CAN_H/CAN_L), multi-master, up to 1 Mbit/s, with arbitration by message ID (lower ID wins, losers retry automatically — no collisions lost), hardware CRC and acknowledgement in every frame. Extremely robust in electrically noisy environments, which is why every vehicle uses it. The **TJA1051T/3** is the transceiver — the physical-layer chip converting the MCU's logic-level TX/RX to the differential bus levels (the /3 variant has 3.3 V-compatible I/O). The bus needs **120 Ω termination at each physical end** (we provide a jumpered split termination — two 60 Ω to a common-mode capacitor — enabled only when our node is a bus end).
+
+```
+            CAN_H ═══════════════════════════════════ twisted pair
+            CAN_L ═══════════════════════════════════
+ [120Ω]        │            │                │           [120Ω]
+ at end     ┌──┴───┐    ┌───┴────┐    ┌──────┴─────┐     at end
+            │ECU-25│    │ engine │    │ diagnostic │
+            │      │    │  ECU   │    │ tool /     │
+            └──────┘    │(future)│    │ CAN logger │
+                        └────────┘    └────────────┘
+ (RS485/Modbus: physically same daisy-chain shape, A/B pair,
+  master polls, ECU-25 answers as slave)
+```
 
 **J1939** is the higher-layer protocol standardized on top of CAN for heavy vehicles and industrial engines (SAE J1939): 29-bit identifiers carrying a **PGN (Parameter Group Number)** — a message-type ID — and a source address; data fields are standardized **SPNs** (e.g. SPN 190 = engine speed) with defined scaling and offsets; nodes negotiate addresses by **address claiming**. Any J1939-literate device can decode standard PGNs from any manufacturer. ECU-25 claims an address and broadcasts genset/engine PGNs; on a future electronic engine it would also *read* the engine ECU's broadcasts instead of using analog senders.
 
@@ -283,6 +491,32 @@ Platform: **C**, STM32 **HAL** (ST's hardware abstraction library), **FreeRTOS**
 
 **Design rule: logic modules are pure.** The state machines and protection logic are written as plain C with no hardware calls — inputs in, decisions out. This lets us compile and unit-test them **on the host PC** (no board needed), which is how the tricky sequencing logic gets exhaustively tested.
 
+Layered architecture — each layer only calls the one below it:
+
+```
+ ┌─────────────────── APPLICATION (pure logic, host-testable) ───────────────┐
+ │  engine_fsm      amf_fsm      protection      hmi pages                   │
+ ├─────────────────── SERVICES ───────────────────────────────────────────────┤
+ │  metering   senders   config   faultlog   comms_modbus   comms_j1939      │
+ ├─────────────────── DRIVERS (STM32 HAL wrappers) ───────────────────────────┤
+ │  ADC+DMA   TIM capture   SPI   CAN   USART   GPIO   IWDG   RTC            │
+ ├─────────────────── FreeRTOS (tasks, queues, timing) ───────────────────────┤
+ └─────────────────── STM32F407 HARDWARE ─────────────────────────────────────┘
+```
+
+Data flow, once per decision cycle:
+
+```
+  ADC (DMA) ──► metering ──► V, I, Hz, kW ──┐
+  senders ────► pressure, temp, fuel ───────┼──► protection ──► warnings ─► K5 horn, LCD
+  TIM ────────► RPM ────────────────────────┤        │
+  GPIO ───────► switches, e-stop ───────────┘        └────────► shutdowns ─► engine_fsm
+                                                                                │
+  mains V, Hz ──► amf_fsm ──► start/stop requests ──► engine_fsm ──► K1 K2 K6
+                     └──────► transfer commands ─────────────────► K3 K4
+  everything ──► hmi (LCD, LEDs) · comms (Modbus, J1939) · faultlog (EEPROM)
+```
+
 ### 12.1 engine_fsm — the start/stop state machine
 
 ```
@@ -297,6 +531,23 @@ STOPPED → PREHEAT → CRANK → CRANK_REST → (retry ≤3) → SHUTDOWN(fail-
 - **RUNNING_WARMUP:** engine runs off-load briefly; some protections (like under-voltage) are held off until the set stabilizes.
 - **COOLDOWN:** after load is removed, the engine idles a few minutes before stopping — turbochargers and injectors live longer when not stopped hot.
 - **STOPPING:** K1 off; firmware verifies RPM actually falls to zero (**fail-to-stop** alarm if not — a runaway diesel is a real, dangerous failure).
+
+A successful automatic start, as a timeline:
+
+```
+            PREHEAT   CRANK      WARMUP        RUNNING (on load)   COOLDOWN
+ K6 glow    ████████
+ K1 fuel             ██████████████████████████████████████████████████████
+ K2 starter          █████░ ◄─ crank disconnect: released the instant
+                              RPM crosses threshold
+ K3 gen ctr                                    ███████████████████
+ RPM     ───────────╱¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯ 1500 ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯╲______
+ gen V   ────────────────╱¯¯¯¯¯¯¯¯¯¯¯ 415  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯╲_____
+                                      ▲                    ▲
+                              some protections      load transferred
+                              armed only after      only when V & Hz
+                              warmup                qualified healthy
+```
 
 ### 12.2 protection — the safety engine
 
@@ -362,6 +613,24 @@ Never first-power a new board fully connected. The stages:
 2. **Bench rig:** 24 V bench PSU; **signal generator pretending to be the MPU** (so the whole start sequence and overspeed logic run with no engine); potentiometers as senders; switches as digital inputs; lamps as relay loads; **one AC channel validated with 230 V through an isolation transformer** (an isolation transformer breaks the galvanic connection to the mains supply, so touching a single point of the secondary can't complete a circuit through you to earth — the standard safe way to develop mains-connected circuits); CT math validated by looping a wire N turns through the CT so a small test current looks like N× the current.
 3. **Genset dry runs:** on the real engine with the **fuel solenoid deliberately held off** — cranking, crank-disconnect, e-stop verified with the engine never actually starting.
 4. **Staged commissioning:** engine control alone → generator metering → live protections → AMF transfer last, each stage supervised.
+
+The bench rig — the whole controller exercised with zero horsepower in the room:
+
+```
+ 24V bench PSU ────────────► DC power in ┌──────────────────────┐
+ (current limited)                       │                      │
+ signal generator ─────────► MPU in      │        ECU-25        │ relay outs ──► 24V lamps
+ (sine, 50mV–10V,                        │     (board under     │               (one per relay —
+  freq sweep = fake engine)              │        test)         │                watch the start
+ 3x 10-turn pots ──────────► sender in   │                      │                sequence happen)
+ (fake oil/temp/fuel)                    │                      │
+ toggle switches ──────────► digital in  │                      │ RS485 ───► USB-485 dongle ─► laptop
+ (fake e-stop etc.)                      └──────────────────────┘            (Modbus poll)
+                                                  ▲
+ 230V mains ──► ISOLATION TRANSFORMER ──► one AC channel (supervised!)
+                                                  ▲
+ test wire looped N turns through CT ──► CT channel (N× multiplication trick)
+```
 
 **Non-negotiable rules:** all 415 V wiring done de-energized and verified dead; AC terminals shrouded; never handle the board while mains sensing is live (remember §8 — no galvanic isolation); the contactor hardware interlock is mandatory in the panel regardless of firmware.
 
