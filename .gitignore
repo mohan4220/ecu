@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# KiCad
+*.kicad_prl
+*-backups/
+*.bak
+*.kicad_sch-bak
+*.kicad_pcb-bak
+fp-info-cache
+~*.lck
+
+# Firmware build
+firmware/build/
+
+# Editor / OS
+.vscode/
+*.swp
+.DS_Store
