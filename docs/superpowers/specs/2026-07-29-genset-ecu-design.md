@@ -1,8 +1,8 @@
 # ECU-25 — Genset AMF Controller: Design Specification
 
-**Date:** 2026-07-29
+**Date:** 2026-07-29 (rev A 2026-08-11: engine confirmed common-rail electronic)
 **Status:** Draft for review
-**Target:** 25 kVA diesel genset, 24 V DC electrical system, mechanical governor, 415 V 3-phase alternator, 50 Hz / 1500 RPM.
+**Target:** 25 kVA diesel genset, 24 V DC electrical system, 415 V 3-phase alternator, 50 Hz / 1500 RPM. Engine is a **common-rail electronic diesel with its own engine-management ECU** (CPCB IV+ class); ECU-25 is the genset supervisor talking to it over J1939. A legacy mode (mechanical-governor engine, analog senders, fuel solenoid) is retained so the same hardware also runs older gensets.
 
 ## 1. Purpose
 
@@ -84,7 +84,7 @@ Two boards:
 - Per channel: low-ohm burden resistor on board, mid-rail bias, RC filter, ADC channel. CT ratio configurable.
 
 ### 4.8 Relay outputs (6x)
-- K1 fuel solenoid (16 A), K2 starter motor (16 A), K3 generator contactor coil, K4 mains contactor coil, K5 alarm/horn, K6 preheat/glow (8 A each, 250 VAC contacts on K3/K4).
+- K1 engine run enable (16 A) — powers the engine ECU's run/keyswitch line on electronic engines, or the fuel solenoid directly on legacy engines. K2 starter motor (16 A) — hardwired crank on both engine types. K3 generator contactor coil, K4 mains contactor coil, K5 alarm/horn, K6 preheat/glow (8 A each, 250 VAC contacts on K3/K4).
 - Each: logic-level N-FET driver, coil flyback diode, contact wiring to pluggable terminal blocks. K3/K4 firmware-interlocked and contact-interlocked externally (wiring note in manual).
 
 ### 4.9 Communications
@@ -116,7 +116,8 @@ Modules (each with a defined interface, testable in isolation):
 - **senders** — sender resistance → engineering units via configurable interpolation tables.
 - **hmi** — LCD pages (status, metering, alarms, config), key handling, LED states.
 - **comms_modbus** — RTU slave, holding/input register map documented in `docs/modbus-map.md`.
-- **comms_j1939** — address claim + periodic broadcast of engine/genset PGNs.
+- **comms_j1939** — the primary engine interface on electronic engines: address claim; read engine data (EEC1 — speed, ET1 — coolant temp, engine fluid level/pressure — oil pressure, hours, DM1 — active fault codes with lamp status, decoded to the display and fault log); broadcast genset PGNs (AC volts/amps/frequency/power). Engine speed, oil pressure, and coolant temperature from J1939 feed the same protection engine as the analog paths.
+- **engine source selection** — config parameter chooses per-signal source: J1939 (electronic engine) or analog sender/MPU (legacy engine). Crank disconnect uses J1939 speed when available, MPU otherwise. Analog channels double as a backup/plausibility cross-check when J1939 is primary.
 - **config** — parameter store in EEPROM, versioned, defaults on first boot, CRC-protected.
 - **faultlog** — circular log in EEPROM: event, engine-hours timestamp, RTC timestamp, snapshot of key values.
 

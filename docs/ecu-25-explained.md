@@ -25,6 +25,8 @@ A **25 kVA diesel genset** is:
 - An **alternator** bolted to the engine, producing **415 V line-to-line, 3-phase, 50 Hz** when the engine turns at 1500 RPM. (Frequency is locked to speed: a 4-pole alternator gives 50 Hz at exactly 1500 RPM. This is why speed and frequency protections are really the same thing measured two ways.)
 - A **24 V battery system** — battery, starter motor, and a small **charge alternator** (like a car alternator) that recharges the battery while the engine runs.
 
+> **Design update (2026-08-11):** the target engine is confirmed to be a **common-rail electronic diesel** with its own engine-management ECU (the box that controls injection, rail pressure, EGR, DPF). That changes ECU-25's role from "drives the engine directly" to "**supervises the engine over J1939**": start/stop via a run-enable relay + CAN, engine speed / oil pressure / coolant temp / fault codes read from the engine ECU's broadcasts, and engine fault codes (DM1) shown on our display. Everything else — AC metering, protections, AMF transfer, display, Modbus — is unchanged. The analog sender inputs, MPU input, and fuel-solenoid relay described below stay in the hardware as a **legacy mode**, so the same board still runs older mechanical-governor gensets. Where the text below says "fuel solenoid", read "run enable" for the electronic engine.
+
 ### The complete installation — single-line view
 
 ```
