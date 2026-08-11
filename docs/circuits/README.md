@@ -34,12 +34,12 @@ multiply by channel count for the full board.
 - F1 5 A: board draw < 1 A + relay coils; fuse protects harness.
 - D1 SMCJ33CA: 33 V standoff (above 32 V max continuous), clamps ≈53 V; buck is 100 V rated → margin.
 - Q1 P-FET −60 V: survives clamped load dump. R1 100k gate pull-down; D2 15 V zener holds V_GS within ±20 V rating.
-- C1 100 µF: ride-through ≈ C·ΔV/I = 100 µF × 10 V / 0.3 A ≈ 3 ms at buck input (plus buck operates down to ~6 V).
+- C1 100 µF: ride-through ≈ 100 µF × 16 V / 0.3 A ≈ 5 ms from 24 V down to the buck's 8 V UVLO floor (the true dropout limit).
 
 ### 02 — Buck (LM5164-Q1)
 - FB ref 1.2 V: R5/R6 = 38.3k/12.1k → V_OUT = 1.2 × (1 + 38.3/12.1) = 5.00 V.
 - UVLO: EN threshold 1.5 V, R2/R3 = 100k/23.2k → turn-on ≈ 8.0 V (below worst crank dip).
-- L1: ΔI = V_OUT(1−D)/(f·L) = 5 × 0.79 / (450 kHz × 33 µH) ≈ 0.27 A (~30 % of 1 A) ✓.
+- RON = 100k → fsw ≈ 300 kHz (LM5164 RON pin, not a fixed-frequency RT). ΔI = 5 × 0.79 / (300 kHz × 33 µH) ≈ 0.40 A — 40 % ripple, acceptable for a 2 A-rated inductor.
 
 ### 03 — LDO (TLV75533)
 - Fixed 3.3 V, 500 mA (reviewer: TPS7A4901's 150 mA was marginal — MCU ~100 mA + RS485 ~25 mA + display logic ~40 mA + peaks).
@@ -61,14 +61,14 @@ multiply by channel count for the full board.
 - BAV99 + R30 clamp ±50 V pickup swings.
 
 ### 07 — AC voltage sense
-- 4 × 330k + 5.90k: ratio 1/225 → 340 Vpk → 1.51 Vpk about the 1.65 V bias (ADC sees 0.14–3.16 V).
+- 4 × 330k + 5.62k: ratio 1/237 → 340 Vpk → 1.43 Vpk about the 1.65 V bias (ADC sees 0.22–3.08 V). Clips at ≈276 V RMS — above the 110 % over-voltage trip point (264 V), so protection still reads real numbers at trip.
 - Fault current if output shorted: 340 V / 1.32 MΩ ≈ 0.26 mA — inherently safe.
 - 4 series 1206 → ≈85 Vpk per resistor (200 V rated) + creepage across the chain.
-- R45/C40: effective fc ≈ 1.05 kHz (source ≈ 5.9k∥1.32M + 1k with 22 nF), −2.7° at 50 Hz. The CT channel uses R53 = 6.8k with the same 22 nF so both channels shift the same amount and the error cancels in power/PF.
+- R45/C40: effective fc ≈ 1.1 kHz (source ≈ 5.62k∥1.32M + 1k with 22 nF), −2.6° at 50 Hz. CT channel: R53 6.8k + 22 nF → fc ≈ 1.06 kHz — matched within ≈0.1°, so the phase error cancels in power/PF.
 
 ### 08 — CT input
 - Burden 0.05 Ω: 5 A RMS → 0.25 V RMS, dissipation 1.25 W on a 3 W part (42 % derating).
-- MCP6002 ×2 → ±0.71 Vpk about 1.65 V at rated current; output clips at ≈8.2 A RMS (1.65×In) — covers time-delayed overcurrent curves.
+- MCP6002 ×2 → ±0.71 Vpk about 1.65 V at rated current; output clips at ≈11.7 A RMS (2.3×In) — ample for time-graded overcurrent curves.
 - D50 bidirectional TVS across the CT terminals — protects the pluggable connector if a live CT is opened.
 - R53 6.8k phase-matches the voltage-channel filter (see 07).
 

@@ -67,7 +67,7 @@ def buck():
         pins=[
             elm.IcPin(name="VIN", side="left", slot="3/3"),
             elm.IcPin(name="EN", side="left", slot="2/3"),
-            elm.IcPin(name="RT", side="left", slot="1/3"),
+            elm.IcPin(name="RON", side="left", slot="1/3"),
             elm.IcPin(name="BST", side="right", slot="3/3"),
             elm.IcPin(name="SW", side="right", slot="2/3"),
             elm.IcPin(name="FB", side="right", slot="1/3"),
@@ -96,8 +96,8 @@ def buck():
     d += elm.Resistor().at(en.start).down(2.4).label("R3\n23.2k\n(UVLO 8V)", loc="bottom")
     d += elm.Ground()
     # RT
-    d += elm.Line().at(ic.RT).left(0.8)
-    d += elm.Resistor().down(2.0).label("R4 100k\n≈450kHz", loc="bottom")
+    d += elm.Line().at(ic.RON).left(0.8)
+    d += elm.Resistor().down(2.0).label("R4 100k (RON)\n≈300kHz", loc="bottom")
     d += elm.Ground()
     # BST cap
     d += elm.Line().at(ic.BST).right(1.4)
@@ -165,11 +165,12 @@ def digital_input():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
     d += elm.Line().right(0.001).label("DIN1 terminal\n(switch to +24V\nor GND, config)", loc="left")
-    d += elm.Resistor().right().label("R10\n10k 0.5W")
+    d += (t0 := elm.Dot())
+    d += elm.Resistor().at(t0.start).right().label("R10\n10k 0.5W")
     d += (n1 := elm.Dot())
     d += elm.Resistor().down().label("R11\n3.3k", loc="bottom")
     d += elm.Ground()
-    d += elm.Resistor().at(n1.start).up(2.4).label("R13 10k + JP4\n(fit for GND-side\nswitches)", loc="top")
+    d += elm.Resistor().at(t0.start).up(2.4).label("R13 10k + JP4\n(fit for GND-side\nswitches)", loc="top")
     d += elm.Line().up(0.4).label("+24V_PROT", loc="top")
     d += elm.Line().at(n1.start).right(1.6)
     d += (n2 := elm.Dot())
@@ -268,7 +269,7 @@ def ac_sense():
     for ref in ["R40", "R41", "R42", "R43"]:
         d += elm.Resistor().right().label(f"{ref}\n330k 1206")
     d += (n1 := elm.Dot())
-    d += elm.Resistor().down(2.4).label("R44\n5.90k 1%", loc="bottom")
+    d += elm.Resistor().down(2.4).label("R44\n5.62k 1%", loc="bottom")
     d += (vr := elm.Dot())
     d += elm.Line().left(1.2).label("VREF_MID 1.65V\n(buffered)", loc="left")
     d += elm.Diode().at(n1.start).up(1.8).label("D40\nBAV199", loc="bottom")
@@ -276,10 +277,10 @@ def ac_sense():
     d += elm.Line().at(n1.start).right(1.0)
     d += elm.Resistor().right().label("R45\n1k")
     d += (n2 := elm.Dot())
-    d += elm.Capacitor().down(2.4).label("C40 22nF C0G\nfc≈1.2kHz\n(matched V+I)", loc="bottom")
+    d += elm.Capacitor().down(2.4).label("C40 22nF C0G\nfc≈1.1kHz\n(matched V+I)", loc="bottom")
     d += elm.Ground().label("AGND", loc="bottom")
     d += elm.Line().at(n2.start).right(0.8)
-    d += elm.Arrow().right(0.8).label("ADC1\n÷225:\n340Vpk→1.51Vpk\naround 1.65V", loc="right")
+    d += elm.Arrow().right(0.8).label("ADC1\n÷237:\n340Vpk→1.43Vpk\naround 1.65V", loc="right")
     save(d, "07-ac-voltage-sense")
 
 
