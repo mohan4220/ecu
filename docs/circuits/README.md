@@ -7,6 +7,8 @@ multiply by channel count for the full board.
 
 | # | Circuit | Channels on board |
 |---|---------|-------------------|
+| 00a | System context block diagram | — |
+| 00b | Main-board subsystem block diagram | — |
 | 01 | Power input protection | 1 |
 | 02 | Buck 24 V → 5 V | 1 |
 | 03 | LDO 5 V → 3.3 V | 1 |
@@ -18,6 +20,13 @@ multiply by channel count for the full board.
 | 09 | Relay driver | 6 |
 | 10 | CAN transceiver | 1 |
 | 11 | RS485 transceiver | 1 |
+| 12 | MCU core (crystals, reset, boot, SWD, RTC backup) | 1 |
+| 13 | VREF_MID 1.65 V buffer | 1 (feeds 9 ch) |
+| 14 | Switched 24 V rail (+24V_SW) | 1 |
+| 15 | Battery voltage sense | 1 |
+| 16 | Charge alternator D+ excite/sense | 1 |
+| 17 | EEPROM SPI wiring | 1 |
+| 18 | Display board (block level) | 1 board |
 
 ## Design calculations
 
@@ -32,8 +41,9 @@ multiply by channel count for the full board.
 - UVLO: EN threshold 1.5 V, R2/R3 = 100k/23.2k → turn-on ≈ 8.0 V (below worst crank dip).
 - L1: ΔI = V_OUT(1−D)/(f·L) = 5 × 0.79 / (450 kHz × 33 µH) ≈ 0.27 A (~30 % of 1 A) ✓.
 
-### 03 — LDO (TPS7A4901)
-- FB ref ≈1.19 V: R7/R8 = 21.5k/12.1k → V_OUT ≈ 3.31 V.
+### 03 — LDO (TLV75533)
+- Fixed 3.3 V, 500 mA (reviewer: TPS7A4901's 150 mA was marginal — MCU ~100 mA + RS485 ~25 mA + display logic ~40 mA + peaks).
+- LCD backlight runs from the 5 V rail over the ribbon, not from the LDO.
 
 ### 04 — Digital input
 - Divider 10k/3.3k from 24 V → 5.95 V at node, wetting current ≈ 1.8 mA.
@@ -54,19 +64,52 @@ multiply by channel count for the full board.
 - 4 × 330k + 5.90k: ratio 1/225 → 340 Vpk → 1.51 Vpk about the 1.65 V bias (ADC sees 0.14–3.16 V).
 - Fault current if output shorted: 340 V / 1.32 MΩ ≈ 0.26 mA — inherently safe.
 - 4 series 1206 → ≈85 Vpk per resistor (200 V rated) + creepage across the chain.
-- R45/C40: fc ≈ 1.2 kHz, phase 2.3° at 50 Hz — matched on V and I channels so it cancels in power/PF.
+- R45/C40: effective fc ≈ 1.05 kHz (source ≈ 5.9k∥1.32M + 1k with 22 nF), −2.7° at 50 Hz. The CT channel uses R53 = 6.8k with the same 22 nF so both channels shift the same amount and the error cancels in power/PF.
 
 ### 08 — CT input
-- Burden 0.1 Ω: 5 A RMS → 0.5 V RMS, dissipation 2.5 W → 3 W part.
-- MCP6002 ×2 → ±1.41 V about 1.65 V at rated current; headroom to ~10 A before clipping.
+- Burden 0.05 Ω: 5 A RMS → 0.25 V RMS, dissipation 1.25 W on a 3 W part (42 % derating).
+- MCP6002 ×2 → ±0.71 Vpk about 1.65 V at rated current; output clips at ≈8.2 A RMS (1.65×In) — covers time-delayed overcurrent curves.
+- D50 bidirectional TVS across the CT terminals — protects the pluggable connector if a live CT is opened.
+- R53 6.8k phase-matches the voltage-channel filter (see 07).
 
 ### 09 — Relay driver
-- AO3400: 24 V coil / 360 Ω → 67 mA, far under 5.7 A rating; R61 keeps FET off during MCU reset.
+- 2N7002K (60 V): coil 24 V / 360 Ω → 67 mA. 60 V rating clears the 53 V TVS clamp with margin — a 30 V FET (AO3400) would not. R61 keeps the FET off during MCU reset.
 - SS34 flyback clamps coil kickback to ~0.4 V above +24V_SW.
 
 ### 10/11 — Comms
 - CAN split termination 2 × 60 Ω + 4.7 nF (fit JP1 only at bus ends) — better common-mode filtering than single 120 Ω.
-- RS485: 120 Ω term (JP2, ends only); 560 Ω fail-safe bias holds >200 mV idle differential.
+- RS485: 120 Ω term (JP2, ends only). THVD1450 has a true fail-safe receiver; the 560 Ω bias is belt-and-braces (with both terminations fitted it only reaches ≈170 mV — the internal fail-safe is what guarantees idle state).
+
+### 12 — MCU core
+- **VCAP1/2: 2 × 2.2 µF** for the F407's internal 1.2 V core regulator — mandatory, the MCU does not boot without them. VREF+ ties to the filtered VDDA.
+- HSE 8 MHz, load caps 12 pF (C = 2(CL−Cstray) with CL = 10 pF, stray ≈ 4 pF); LSE 32.768 kHz, 6.8 pF (CL ≈ 6 pF low-drive).
+- VBAT: BAT54 + 330 Ω charges the 0.22 F supercap gently — without the resistor the 3.3 V LDO sits in current limit for seconds at every cold start. RTC draw ~1 µA → ≈60 h backup.
+- VDDA fed through ferrite + 1 µF/10 nF — keeps digital switching noise off the ADC reference.
+- BOOT0 10 k pulldown = boot from flash; JP3 to 3V3 invokes ROM UART bootloader (recovery without debugger).
+
+### 13 — VREF_MID buffer
+- 10k/10k from 3.3 V → 1.65 V; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF with DC feedback taken after the resistor (dual-feedback RC finalized in KiCad) → low output impedance at 50 Hz, no bias crosstalk between channels.
+
+### 14 — +24V_SW
+- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. Local SMBJ33A clamps coil-switching transients.
+
+### 15 — Battery sense
+- 100k/6.8k = ÷15.7 → 32 V reads 2.04 V (ADC max 3.3 V ⇒ headroom to 51 V). 12-bit LSB ≈ 12.6 mV of battery.
+
+### 16 — Charge alternator D+
+- 220 Ω 5 W from +24V_SW ≈ 100 mA excitation (replaces the charge-lamp current that self-excites the alternator). 5 W part: 2.6 W dissipates continuously during a charge-fail — exactly the fault it must survive.
+- 100 nF at the ADC node, matching the battery-sense channel.
+- Same ÷15.7 divider; engine running + D+ < ~half battery ⇒ charge-fail warning.
+
+### 17 — EEPROM
+- All SPI2; CS pulled up so the chip stays deselected during MCU reset; WP/HOLD tied high via 10 k (software write protection only).
+
+### 18 — Display board
+- Single SPI bus shared by LCD (ST7565), 74HC595 (LEDs), 74HC165 (keys) with separate strobes → 16-way ribbon carries everything including power (3V3 for logic, 5 V for backlight).
+
+## Review status
+
+Independently design-reviewed 2026-08-11 (all calculations re-derived, all diagrams inspected). Fixes applied: TVS polarity (14), VCAP caps (12), GND-side switch pull-up (04), comparator supply (06), V/I filter phase matching (07/08), CT burden/headroom/TVS (08), 60 V relay FET (09), supercap inrush resistor (12), 500 mA LDO (03), VREF buffer feedback (13). Notes: BAV199 symbols show one diode of the dual pair (second half to GND implied); D1 SMCJ33CA is bidirectional despite the unidirectional symbol; refdes get final rationalization in KiCad.
 
 ## Regenerating
 

@@ -47,7 +47,7 @@ Two boards:
 
 ### 4.1 Power supply
 - Input 9–32 V DC continuous (24 V nominal); survives cranking dips and clamps load-dump transients.
-- Chain: input connector → 5 A blade fuse → SMCJ33CA bidirectional TVS → reverse-polarity P-channel MOSFET → ferrite bead + bulk capacitance → LM5164-Q1 synchronous buck (100 V max input) → 5 V rail → TPS7A4901 LDO → 3.3 V rail.
+- Chain: input connector → 5 A blade fuse → SMCJ33CA bidirectional TVS → reverse-polarity P-channel MOSFET → ferrite bead + bulk capacitance → LM5164-Q1 synchronous buck (100 V max input) → 5 V rail → TLV75533 LDO → 3.3 V rail.
 - 5 V rail powers relay coils' drivers, analog pull-ups, LCD backlight; 3.3 V powers MCU, transceivers, analog front ends.
 - Bulk electrolytic sized to ride through ≥10 ms crank transients without MCU reset.
 

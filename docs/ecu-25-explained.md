@@ -123,7 +123,7 @@ The battery rail on an engine is one of the nastiest electrical environments in 
 
 ```
 24V battery → fuse → TVS clamp → reverse-polarity MOSFET → ferrite + bulk caps
-           → LM5164-Q1 buck (24V → 5V) → TPS7A4901 LDO (5V → 3.3V)
+           → LM5164-Q1 buck (24V → 5V) → TLV75533 LDO (5V → 3.3V)
 ```
 
 ### 3.1 What the input must survive
@@ -192,7 +192,7 @@ Refresher on buck operation: a high-side switch connects V_IN to the inductor fo
 - **Synchronous, internal FETs** — few external parts, good efficiency.
 - **-Q1 suffix = AEC-Q100 automotive qualification.** The part is tested and guaranteed for automotive stress: −40 to +125 °C, temperature cycling, humidity, vibration lifetime tests. On battery-connected circuits we prefer Q100 parts throughout.
 
-### 3.4 The LDO — TPS7A4901, 5 V → 3.3 V
+### 3.4 The LDO — TLV75533, 5 V → 3.3 V
 
 A buck is efficient but **noisy** — every switching edge leaves ripple (tens of mV at the switching frequency and its harmonics) on its output. Our ADC measures signals where 1 LSB ≈ 0.8 mV; the ADC reference must be clean. So the 3.3 V rail comes from a **low-dropout linear regulator (LDO)** fed by the 5 V rail. An LDO is a linear regulator whose pass element can regulate with very little headroom ("dropout"), and a good one has high **PSRR** (power-supply rejection ratio) — it actively attenuates the ripple arriving at its input. Dropping only 5→3.3 V at modest current, the heat is trivial, and the output is quiet enough for analog work.
 
