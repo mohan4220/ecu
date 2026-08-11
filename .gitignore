@@ -19,3 +19,6 @@ firmware/build/
 .vscode/
 *.swp
 .DS_Store
+
+# External reference material - never commit
+refs/
