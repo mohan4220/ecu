@@ -28,12 +28,12 @@ Two boards:
 ```
 ┌─────────────────────────────────────────┐
 │ DISPLAY BOARD (2-layer)                 │
-│ 128x64 LCD (ST7565, SPI)                │
+│ 4.3" 480x272 color TFT + RA8875 (SPI)   │
 │ Keys: STOP | AUTO | MANUAL | START      │
 │       ▲ ▼ ⏎ (menu)                      │
 │ 8 status LEDs                           │
 └──────────────┬──────────────────────────┘
-               │ 16-way ribbon (SPI + GPIO, 3.3 V)
+               │ 20-way ribbon (SPI + GPIO, 3.3 V + 5 V)
 ┌──────────────┴──────────────────────────┐
 │ MAIN BOARD (4-layer, ~120 x 100 mm)     │
 │ Power supply │ STM32F407VGT6 │ EEPROM   │
@@ -94,15 +94,16 @@ Two boards:
 
 ### 4.10 Connectors
 - Pluggable screw-terminal blocks (5.08 mm pitch) grouped: DC power, digital inputs, senders/RPM, relay contacts, AC voltage inputs, CTs, comms.
-- Display ribbon: 16-way boxed IDC.
+- Display ribbon: 20-way boxed IDC.
 
 ## 5. Hardware Design — Display Board
 
-- 128x64 monochrome graphic LCD, ST7565 controller, SPI.
-- 7 tactile keys: STOP, AUTO, MANUAL, START, UP, DOWN, ENTER.
+- 4.3" 480x272 color TFT (phone-size, modern-controller class) driven by an RA8875 graphics controller: own framebuffer RAM and hardware drawing, so the MCU talks plain SPI — no parallel RGB bus, no MCU change.
+- LED backlight powered from the 5 V rail (module driver), PWM-dimmable from the MCU.
+- 7 tactile keys: STOP, AUTO, MANUAL, START, UP, DOWN, ENTER (physical keys — glove-friendly; no touchscreen).
 - 8 LEDs: Mains OK, Gen Running, Load on Mains, Load on Gen, Warning, Shutdown, Auto mode, Charge.
-- Keys and LEDs on 74HC165/74HC595 shift registers sharing the SPI bus (keeps the ribbon at 16 ways).
-- 2-layer PCB sized as a front panel (~96 x 96 mm DIN cutout compatible).
+- Keys and LEDs on 74HC165/74HC595 shift registers sharing the SPI bus; ribbon grows to 20 ways (3V3, 5V, GND, SPI, RA8875 CS/INT/RST, backlight PWM, strobes).
+- 2-layer PCB sized as a front panel (~140 x 100 mm bezel).
 
 ## 6. Firmware Architecture
 
@@ -114,7 +115,7 @@ Modules (each with a defined interface, testable in isolation):
 - **amf_fsm** — mains monitor (volt + freq window, qualification timers) → auto start → transfer to gen (break-before-make, transfer delay) → mains-return qualification → retransfer → cooldown → stop.
 - **metering** — triple-ADC simultaneous sampling via DMA, 128 samples/cycle tracked to measured frequency; per-channel true-RMS, frequency (zero-cross with interpolation), active/apparent power, PF, energy accumulators, engine hours.
 - **senders** — sender resistance → engineering units via configurable interpolation tables.
-- **hmi** — LCD pages (status, metering, alarms, config), key handling, LED states.
+- **hmi** — UI built with LVGL (pages: status, metering, alarms, engine data/DM1, config), rendered via RA8875 over SPI; key handling, LED states. Full UI runs in LVGL's PC simulator for development and review before hardware exists.
 - **comms_modbus** — RTU slave, holding/input register map documented in `docs/modbus-map.md`.
 - **comms_j1939** — the primary engine interface on electronic engines: address claim; read engine data (EEC1 — speed, ET1 — coolant temp, engine fluid level/pressure — oil pressure, hours, DM1 — active fault codes with lamp status, decoded to the display and fault log); broadcast genset PGNs (AC volts/amps/frequency/power). Engine speed, oil pressure, and coolant temperature from J1939 feed the same protection engine as the analog paths.
 - **engine source selection** — config parameter chooses per-signal source: J1939 (electronic engine) or analog sender/MPU (legacy engine). Crank disconnect uses J1939 speed when available, MPU otherwise. Analog channels double as a backup/plausibility cross-check when J1939 is primary.

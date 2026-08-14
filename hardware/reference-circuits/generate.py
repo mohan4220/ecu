@@ -750,9 +750,9 @@ def eeprom():
 def display_board():
     d = schemdraw.Drawing()
     d.config(fontsize=9, unit=2.0)
-    j = flow.Box(w=2.6, h=5.2).at((0, 2.0)).label("J3\nribbon\n16-way\n\n3V3 · 5V\nGND\nSPI\nstrobes")
+    j = flow.Box(w=2.6, h=5.2).at((0, 2.0)).label("J3\nribbon\n20-way\n\n3V3 · 5V\nGND\nSPI\nRA8875 ctl\nstrobes")
     d += j
-    lcd = flow.Box(w=4.6, h=1.6).at((6.0, 6.4)).label("LCD 128×64\nST7565  (SPI)\nCS · A0 · RST + bias caps")
+    lcd = flow.Box(w=4.6, h=1.6).at((6.0, 6.4)).label("4.3in 480×272 TFT\nRA8875 ctrl (SPI)\nCS·INT·RST · 5V backlight PWM")
     d += lcd
     sr_o = flow.Box(w=4.6, h=1.6).at((6.0, 3.6)).label("74HC595\nshift reg OUT\n→ 8 LEDs via 470Ω")
     d += sr_o
@@ -764,7 +764,7 @@ def display_board():
     d += keys
     d += elm.Line().at((j.E[0] - 0.01, j.NE[1] - 0.4)).right(0.9)
     d += elm.Line().toy(lcd.W)
-    d += elm.Arrow().tox(lcd.W).label("SCK/MOSI + LCD_CS/A0/RST", loc="top")
+    d += elm.Arrow().tox(lcd.W).label("SPI + RA8875 CS/INT/RST + BL_PWM", loc="top")
     d += elm.Arrow().at((j.E[0], sr_o.W[1])).tox(sr_o.W).label("SCK/MOSI + RCLK", loc="top")
     d += elm.Line().at((j.E[0], sr_i.W[1])).tox(sr_i.W)
     d += elm.Arrow().at(sr_i.W).tox(j.E[0]).label("MISO ← + LD/CLK", loc="bottom")

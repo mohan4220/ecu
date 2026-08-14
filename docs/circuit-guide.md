@@ -423,19 +423,19 @@
 
 ![](circuits/18-display-board.png)
 
-**What:** the human face: 128×64 LCD, 7 keys, 8 status LEDs, on its own small PCB behind the panel door, one 16-way ribbon to the main board.
+**What:** the human face: 4.3" 480×272 color TFT (phone-size), 7 keys, 8 status LEDs, on its own PCB behind the panel door, one 20-way ribbon to the main board.
 
-**Why needed:** operators start/stop the set, read voltages, and see alarms without a laptop. Separate board: display lives at eye level, main board lives deep in the panel; only logic-level signals (3.3 V + 5 V for backlight) cross the ribbon.
+**Why needed:** operators start/stop the set, read voltages, and see alarms without a laptop. Separate board: display lives at eye level, main board lives deep in the panel; only logic-level signals plus the 5 V backlight feed cross the ribbon.
 
-**How it works:** everything shares the one SPI bus with separate strobes: the ST7565 LCD is a plain SPI write-only device (A0 selects command/data); the 74HC595 shift register latches 8 LED states from the same MOSI/SCK on its own RCLK strobe; the 74HC165 parallel-loads 7 key states and shifts them back on MISO. Bus cost: 16 wires total including both supplies.
+**How it works:** everything shares the one SPI bus with separate selects. The TFT is driven by an **RA8875 graphics controller** — it owns the framebuffer RAM and a hardware drawing engine (lines, rectangles, fonts, block moves), so the MCU sends short SPI commands instead of streaming 480×272×16-bit frames (which SPI could never sustain and a bare F407 could never buffer). The 74HC595 latches 8 LED states on its RCLK strobe; the 74HC165 parallel-loads 7 keys and shifts them back on MISO. Bus cost: 20 wires including both supplies and backlight PWM.
 
-**Ideal / ours:** ideal — instant, flicker-free, debounced. Ours — full LCD refresh ≈ 8 ms at 2 MHz SPI (20 Hz HMI task = flicker-free), keys sampled at 100 Hz with 30 ms debounce in firmware, LED update ~µs.
+**Ideal / ours:** ideal — instant, flicker-free, debounced. Ours — LVGL redraws only changed regions through RA8875 primitives; typical page update well under the 50 ms HMI tick (flicker-free), keys sampled at 100 Hz with 30 ms debounce, LED update ~µs. Backlight PWM ≥200 Hz, 5 V ≈ 250 mA.
 
-**Simulate:** logic, not SPICE. Two options: (a) host-side — the hmi module renders pages into a 128×64 byte buffer on the PC; unit tests assert pixels (and the buffer can be dumped as PNG to *look* at pages before hardware); (b) **Wokwi** — no ST7565 model exists there, so use its SSD1306 128×64 OLED as a stand-in (same buffer geometry) with buttons on any supported MCU, and run the actual page-drawing C code interactively in the browser. This is where the Proteus-style itch actually gets scratched usefully.
+**Simulate:** logic, not SPICE. **LVGL's PC simulator** is the primary tool: the entire UI — every page, menu, alarm popup — runs on the desktop with mouse-as-keys, pixel-identical to the target. Screenshots from it are the review artifact; the same C code then compiles for the board with the RA8875 driver underneath.
 
-**Reading:** rendered-page PNGs from the host tests are the review artifact — page layout gets approved before a single component is soldered.
+**Reading:** simulator screenshots of every page get approved before a single component is soldered.
 
-**Failure modes:** ribbon length > ~50 cm at 2 MHz SPI → ringing (slow the clock or shorten); LCD contrast varies with temperature (ST7565 has a programmable bias — a config parameter, learned during bench bring-up).
+**Failure modes:** ribbon length > ~50 cm at SPI speed → ringing (slow the clock or shorten); TFT backlight LEDs dim with age (PWM headroom covers it); RA8875 needs a defined reset sequence at power-up or it wedges — the RST line on the ribbon exists for exactly that.
 
 ---
 

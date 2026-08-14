@@ -26,7 +26,7 @@ multiply by channel count for the full board.
 | 15 | Battery voltage sense | 1 |
 | 16 | Charge alternator D+ excite/sense | 1 |
 | 17 | EEPROM SPI wiring | 1 |
-| 18 | Display board (block level) | 1 board |
+| 18 | Display board — 4.3" TFT + RA8875 (block level) | 1 board |
 
 ## Design calculations
 
@@ -105,7 +105,9 @@ multiply by channel count for the full board.
 - All SPI2; CS pulled up so the chip stays deselected during MCU reset; WP/HOLD tied high via 10 k (software write protection only).
 
 ### 18 — Display board
-- Single SPI bus shared by LCD (ST7565), 74HC595 (LEDs), 74HC165 (keys) with separate strobes → 16-way ribbon carries everything including power (3V3 for logic, 5 V for backlight).
+- 4.3" 480×272 color TFT via RA8875 graphics controller (own framebuffer + drawing hardware) → MCU stays on SPI, no parallel RGB bus, no MCU upgrade.
+- Single SPI bus shared by RA8875, 74HC595 (LEDs), 74HC165 (keys) with separate selects → 20-way ribbon carries everything including power (3V3 logic, 5 V backlight ~250 mA, PWM dimming).
+- UI firmware: LVGL, developed against its PC simulator first.
 
 ## Review status
 

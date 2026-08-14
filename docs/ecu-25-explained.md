@@ -71,12 +71,12 @@ One picture, whole job: watch both power sources, run the engine, and decide whi
 ```
 ┌─────────────────────────────────────────┐
 │ DISPLAY BOARD (2-layer)                 │
-│ 128x64 LCD (ST7565, SPI)                │
+│ 4.3" 480x272 color TFT + RA8875 (SPI)   │
 │ Keys: STOP | AUTO | MANUAL | START      │
 │       ▲ ▼ ⏎ (menu)                      │
 │ 8 status LEDs                           │
 └──────────────┬──────────────────────────┘
-               │ 16-way ribbon (SPI + GPIO, 3.3 V)
+               │ 20-way ribbon (SPI + GPIO, 3.3 V + 5 V)
 ┌──────────────┴──────────────────────────┐
 │ MAIN BOARD (4-layer, ~120 x 100 mm)     │
 │ Power supply │ STM32F407VGT6 │ EEPROM   │
@@ -86,7 +86,7 @@ One picture, whole job: watch both power sources, run the engine, and decide whi
 └─────────────────────────────────────────┘
 ```
 
-**Why split?** The main board carries 415 V nets, relay contacts, and a switching power supply — it wants to live deep in the panel with fat wires. The display wants to be on the panel door at eye level. Splitting them means: each layout is simpler, the display can be swapped/upgraded without respinning the main board, and only 3.3 V logic crosses the ribbon cable (no hazardous voltage goes to the door). This is exactly how commercial controllers are built internally.
+**Why split?** The main board carries 415 V nets, relay contacts, and a switching power supply — it wants to live deep in the panel with fat wires. The display wants to be on the panel door at eye level. Splitting them means: each layout is simpler, the display can be swapped/upgraded without respinning the main board, and only logic-level signals cross the ribbon cable (no hazardous voltage goes to the door). This is exactly how commercial controllers are built internally.
 
 **Why 4 layers on the main board?** A PCB can have 2, 4, 6+ copper layers. With 4 layers we dedicate one inner layer to a solid **ground plane** and one to power. A continuous ground plane gives every signal a low-inductance return path directly underneath it. That matters here because this one board mixes: a switching converter (fast dV/dt edges), precision analog measurement (millivolt-level accuracy wanted), relay switching (arcs and coil kickback), and mains-frequency high voltage. On a 2-layer board, return currents share long looping paths, they couple into each other, and the analog readings get noisy. Four layers is the cheapest robust answer; commercial ECUs use 4–8.
 
@@ -592,10 +592,10 @@ Every transition is guarded by **qualification timers** — mains must be dead f
 
 ## 13. Display Board
 
-- **128×64 monochrome graphic LCD, ST7565 controller, SPI interface.** Graphic (not character) so we can render pages, bar graphs, and menus freely. Monochrome STN because it is cheap, sunlight-readable, and runs happily from −20 °C.
+- **4.3" 480×272 color TFT with RA8875 graphics controller, SPI interface.** Phone-size, matching modern CPCB IV+ era controllers. The RA8875 is the trick that keeps this simple: it carries its own framebuffer RAM and a hardware drawing engine, so our MCU sends compact drawing commands over SPI instead of pushing every pixel of a raw RGB panel (which would demand a bigger MCU + external SDRAM). Backlight runs from the 5 V rail with PWM dimming.
 - **7 keys:** STOP, AUTO, MANUAL, START (the standard genset-controller four — STOP also resets latched alarms; AUTO arms the AMF logic; MANUAL/START give direct human control), plus ▲ ▼ ⏎ for menus.
 - **8 LEDs:** Mains OK, Gen Running, Load-on-Mains, Load-on-Gen, Warning, Shutdown, Auto-mode, Charge.
-- **Shift registers** (74HC165 input for keys, 74HC595 output for LEDs) sit on the same SPI bus as the LCD with separate chip-selects — so the entire panel needs only a **16-way ribbon**: 3.3 V, ground, SPI (SCK/MOSI/MISO), a few chip-selects and strobes. Small pin count = cheap connector, robust cable, and the main board doesn't burn 15 GPIOs on the panel.
+- **Shift registers** (74HC165 input for keys, 74HC595 output for LEDs) sit on the same SPI bus as the TFT controller with separate chip-selects — the entire panel needs a **20-way ribbon**: 3.3 V, 5 V (backlight), ground, SPI, RA8875 control lines, strobes. The UI itself is built with **LVGL**, whose PC simulator lets the whole interface be designed and approved on a desktop before any hardware exists.
 
 ---
 
