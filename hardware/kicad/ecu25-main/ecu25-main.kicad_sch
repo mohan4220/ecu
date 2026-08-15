@@ -1,0 +1,147 @@
+(kicad_sch (version 20230121) (generator ecu25_gen)
+
+  (uuid f87ffa62-3bec-49af-9450-b8dfb95e0d01)
+
+  (paper "A3")
+  (lib_symbols)
+
+  (sheet (at 25.4 25.4) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid fbc80853-03da-4bd4-b631-b1e9ee409b4c)
+    (property "Sheetname" "Power" (id 0) (at 25.4 24.599999999999998 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "power.kicad_sch" (id 1) (at 25.4 51.4 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "2"))
+      )
+    )
+  )
+
+  (sheet (at 101.6 25.4) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid 77083d83-16f1-4321-88c4-105296f8c992)
+    (property "Sheetname" "Analog inputs" (id 0) (at 101.6 24.599999999999998 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "analog.kicad_sch" (id 1) (at 101.6 51.4 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "3"))
+      )
+    )
+  )
+
+  (sheet (at 177.8 25.4) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid 0223b0c0-ec0f-494e-8744-81ffd1ec328e)
+    (property "Sheetname" "AC sensing" (id 0) (at 177.8 24.599999999999998 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "ac_sense.kicad_sch" (id 1) (at 177.8 51.4 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "4"))
+      )
+    )
+  )
+
+  (sheet (at 254.00000000000003 25.4) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid 67c20895-73df-4be0-b2d3-f1ead89e30be)
+    (property "Sheetname" "Digital inputs + MPU" (id 0) (at 254.00000000000003 24.599999999999998 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "digital.kicad_sch" (id 1) (at 254.00000000000003 51.4 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "5"))
+      )
+    )
+  )
+
+  (sheet (at 25.4 66.03999999999999) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid dfd3141f-32c5-4dac-82a7-9da0d3c661d0)
+    (property "Sheetname" "Relay drivers" (id 0) (at 25.4 65.24 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "relays.kicad_sch" (id 1) (at 25.4 92.03999999999999 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "6"))
+      )
+    )
+  )
+
+  (sheet (at 101.6 66.03999999999999) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid dcffb699-299a-44e8-8194-14b83aa385d2)
+    (property "Sheetname" "Comms" (id 0) (at 101.6 65.24 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "comms.kicad_sch" (id 1) (at 101.6 92.03999999999999 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "7"))
+      )
+    )
+  )
+
+  (sheet (at 177.8 66.03999999999999) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid bd701a51-29f9-4764-95dc-b35e17f45161)
+    (property "Sheetname" "MCU" (id 0) (at 177.8 65.24 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "mcu.kicad_sch" (id 1) (at 177.8 92.03999999999999 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "8"))
+      )
+    )
+  )
+
+  (sheet (at 254.00000000000003 66.03999999999999) (size 63.5 25.4)
+    (stroke (width 0.1524) (type solid))
+    (fill (color 0 0 0 0.0))
+    (uuid c4f49f5f-4fa2-4837-8ad9-b213e9188284)
+    (property "Sheetname" "Display connector" (id 0) (at 254.00000000000003 65.24 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Sheetfile" "display.kicad_sch" (id 1) (at 254.00000000000003 92.03999999999999 0)
+      (effects (font (size 1.0 1.0)) (justify left))
+    )
+    (instances
+      (project "ecu25-main"
+        (path "/f87ffa62-3bec-49af-9450-b8dfb95e0d01" (page "9"))
+      )
+    )
+  )
+
+  (sheet_instances
+    (path "/" (page "1"))
+  )
+)

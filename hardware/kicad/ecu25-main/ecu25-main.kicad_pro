@@ -1,0 +1,60 @@
+{
+  "board": {
+    "design_settings": {}
+  },
+  "libraries": {
+    "pinned_symbol_libs": [],
+    "pinned_footprint_libs": []
+  },
+  "meta": {
+    "filename": "ecu25-main.kicad_pro",
+    "version": 1
+  },
+  "schematic": {
+    "annotate_start_num": 0,
+    "drawing": {
+      "default_font": "KiCad Font"
+    },
+    "legacy_lib_dir": "",
+    "legacy_lib_list": []
+  },
+  "sheets": [
+    [
+      "f87ffa62-3bec-49af-9450-b8dfb95e0d01",
+      ""
+    ],
+    [
+      "fbc80853-03da-4bd4-b631-b1e9ee409b4c",
+      "Power"
+    ],
+    [
+      "77083d83-16f1-4321-88c4-105296f8c992",
+      "Analog inputs"
+    ],
+    [
+      "0223b0c0-ec0f-494e-8744-81ffd1ec328e",
+      "AC sensing"
+    ],
+    [
+      "67c20895-73df-4be0-b2d3-f1ead89e30be",
+      "Digital inputs + MPU"
+    ],
+    [
+      "dfd3141f-32c5-4dac-82a7-9da0d3c661d0",
+      "Relay drivers"
+    ],
+    [
+      "dcffb699-299a-44e8-8194-14b83aa385d2",
+      "Comms"
+    ],
+    [
+      "bd701a51-29f9-4764-95dc-b35e17f45161",
+      "MCU"
+    ],
+    [
+      "c4f49f5f-4fa2-4837-8ad9-b213e9188284",
+      "Display connector"
+    ]
+  ],
+  "text_variables": {}
+}
