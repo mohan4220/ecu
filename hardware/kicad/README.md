@@ -46,4 +46,31 @@ kicad-cli sch export svg hardware/kicad/ecu25-main/ecu25-main.kicad_sch -o /tmp/
 ```
 
 Run ERC from eeschema (Inspect → Electrical Rules Checker) — kicad-cli 7 has
-no ERC command. Footprint assignment and PCB layout are the next phase.
+no ERC command.
+
+## PCB
+
+Footprints are assigned in the schematic generator (`footprint_for()` in
+`gen_ecu25.py`): 0603 passives by default, wattage/voltage exceptions by value
+(1206 AC chain, 1210 0.5 W, 2512 shunts, THT power parts), MKDS-3 terminal
+blocks for battery/AC/CT/relay field wiring, MKDS-1,5 for signal-level.
+
+`ecu25-main/ecu25-main.kicad_pcb` is a generated **starting point**, not a
+routed board: 200×150 mm 2-layer outline, M3 corner holes, field connectors on
+the edges (battery/MPU/D+ left, AC + display ribbon top, CT right, DIN /
+senders / comms / relay contacts bottom), relays in a 2×3 block by J8, MCU
+central, remaining parts shelf-packed inside their subsystem zone, all pads on
+nets, GND pour both layers. Regenerate:
+
+```
+kicad-cli sch export netlist hardware/kicad/ecu25-main/ecu25-main.kicad_sch -o /tmp/ecu25.net
+python3 hardware/kicad/gen/gen_pcb.py /tmp/ecu25.net   # system python (needs pcbnew)
+```
+
+`ecu25-main.kicad_dru` carries the HV clearance rules (2.5 mm on the J5/J6
+415 V nets, 1.0 mm inside the 4×330k divider chains) — pcbnew picks it up
+automatically. Routing guidance: battery input F1→Q1→buck ≥2 mm track;
++24V_SW and relay coil/contact tracks ≥1 mm; keep the AC divider chains and
+their guard clearance away from the ADC analog zone; VREF_MID is a star net —
+route each channel's bias from the buffer side. Interactive routing (or
+freerouting via DSN export) is the remaining manual step, then DRC in pcbnew.

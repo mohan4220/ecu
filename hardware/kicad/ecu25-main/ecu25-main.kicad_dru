@@ -1,0 +1,11 @@
+(version 1)
+
+# 415 V AC sense inputs (J5/J6 terminals up to the first 330k): creepage-class
+(rule ac_line_clearance
+  (condition "A.NetName == '/AC sensing/AC_GEN_L1' || A.NetName == '/AC sensing/AC_GEN_L2' || A.NetName == '/AC sensing/AC_GEN_L3' || A.NetName == '/AC sensing/AC_MAINS_L1' || A.NetName == '/AC sensing/AC_MAINS_L2' || A.NetName == '/AC sensing/AC_MAINS_L3' || A.NetName == 'GND'")
+  (constraint clearance (min 2.5mm)))
+
+# interior nodes of the 4x330k chains (~85..255 Vpk)
+(rule ac_chain_clearance
+  (condition "A.NetName == 'Net-(R300-Pad2)' || A.NetName == 'Net-(R301-Pad2)' || A.NetName == 'Net-(R302-Pad2)' || A.NetName == 'Net-(R310-Pad2)' || A.NetName == 'Net-(R311-Pad2)' || A.NetName == 'Net-(R312-Pad2)' || A.NetName == 'Net-(R320-Pad2)' || A.NetName == 'Net-(R321-Pad2)' || A.NetName == 'Net-(R322-Pad2)' || A.NetName == 'Net-(R330-Pad2)' || A.NetName == 'Net-(R331-Pad2)' || A.NetName == 'Net-(R332-Pad2)' || A.NetName == 'Net-(R340-Pad2)' || A.NetName == 'Net-(R341-Pad2)' || A.NetName == 'Net-(R342-Pad2)' || A.NetName == 'Net-(R350-Pad2)' || A.NetName == 'Net-(R351-Pad2)' || A.NetName == 'Net-(R352-Pad2)'")
+  (constraint clearance (min 1.0mm)))
