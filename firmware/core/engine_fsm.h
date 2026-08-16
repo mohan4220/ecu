@@ -32,6 +32,9 @@ typedef struct {
     uint8_t attempt;        /* crank attempt counter                   */
     bool fail_to_start;     /* event flags, true for one tick          */
     bool fail_to_stop;
+    bool standstill_seen;   /* rpm < 10 observed during this stop:
+                               valid stopped-evidence even after a J1939
+                               engine ECU sleeps and rpm goes stale     */
 } engine_fsm_t;
 
 /* Commands from amf_fsm / operator, evaluated each tick. */

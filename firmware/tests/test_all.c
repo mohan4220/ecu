@@ -410,8 +410,8 @@ static void run_j1939(gcu_app_t *app, plant_t *plant, j1939_state_t *j,
         for (int k = 0; k < n; k++) {
             j1939_rx(j, &fr[k]);
         }
-        j1939_tick(j, &tx);
-        j1939_fill_inputs(j, out->run_enable, in);
+        j1939_tick(j, out->run_enable, &tx);
+        j1939_fill_inputs(j, in);
         in->mode_auto = auto_mode;
         gcu_app_tick(app, in, out);
         CHECK(!(out->gen_contactor && out->mains_contactor));
@@ -445,7 +445,7 @@ static void test_j1939_spn_scaling(void)
     j1939_frame_t f4 = {.id = 0x18F00400U, .dlc = 8,
                         .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
     j1939_frame_t tx;
-    j1939_tick(&j, &tx); /* age 1 */
+    j1939_tick(&j, false, &tx); /* age 1 */
     j1939_rx(&j, &f4);
     CHECK(j.rpm > 1499.9f);
     CHECK(j.rpm_age == 1);
@@ -546,24 +546,130 @@ static void test_j1939_address_claim(void)
     j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
 
     /* power-up claim */
-    CHECK(j1939_tick(&j, &tx));
+    CHECK(j1939_tick(&j, false, &tx));
     CHECK(j1939_pgn(tx.id) == 60928U);
     CHECK((tx.id & 0xFFU) == J1939_ADDR_GENSET_CONTROLLER);
-    CHECK(!j1939_tick(&j, &tx)); /* sent once */
+    CHECK(!j1939_tick(&j, false, &tx)); /* sent once */
 
     /* competitor with HIGHER name -> we defend (re-claim) */
     j1939_frame_t rival = {.id = 0x18EEFF00U | J1939_ADDR_GENSET_CONTROLLER,
                            .dlc = 8,
-                           .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
+                           .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F}};
     j1939_rx(&j, &rival);
     CHECK(!j.addr_conflict);
-    CHECK(j1939_tick(&j, &tx));
+    CHECK(j1939_tick(&j, false, &tx));
+    CHECK((tx.id & 0xFFU) == J1939_ADDR_GENSET_CONTROLLER);
 
-    /* competitor with LOWER name -> we lose and go silent */
+    /* competitor with LOWER name -> we lose and announce cannot-claim */
     memset(rival.data, 0x00, 8);
     j1939_rx(&j, &rival);
     CHECK(j.addr_conflict);
-    CHECK(!j1939_tick(&j, &tx));
+    CHECK(j1939_tick(&j, false, &tx));
+    CHECK((tx.id & 0xFFU) == J1939_ADDR_NULL);
+    CHECK(!j1939_tick(&j, false, &tx));
+
+    /* request-for-address-claimed while conflicted -> cannot-claim again */
+    j1939_frame_t rq = {.id = 0x18EAFF00U | 0x17U, .dlc = 3,
+                        .data = {0x00, 0xEE, 0x00}};
+    j1939_rx(&j, &rq);
+    CHECK(j1939_tick(&j, false, &tx));
+    CHECK((tx.id & 0xFFU) == J1939_ADDR_NULL);
+
+    /* EQUAL name (cloned unit) counts as a conflict, not a defence */
+    j1939_state_t j2;
+    j1939_init(&j2, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    j1939_tick(&j2, false, &tx); /* drain power-up claim */
+    j1939_frame_t clone = {.id = 0x18EEFF00U | J1939_ADDR_GENSET_CONTROLLER,
+                           .dlc = 8, .data = {0}};
+    for (int i = 0; i < 8; i++) {
+        clone.data[i] = (uint8_t)(j2.name >> (8 * i));
+    }
+    j1939_rx(&j2, &clone);
+    CHECK(j2.addr_conflict);
+
+    /* destination-specific request for ANOTHER node: no answer */
+    j1939_state_t j3;
+    j1939_init(&j3, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    j1939_tick(&j3, false, &tx); /* drain power-up claim */
+    j1939_frame_t rq_other = {.id = 0x18EA5A00U | 0x17U, .dlc = 3,
+                              .data = {0x00, 0xEE, 0x00}};
+    j1939_rx(&j3, &rq_other);
+    CHECK(!j1939_tick(&j3, false, &tx));
+}
+
+static void test_j1939_red_lamp_blocks_start(void)
+{
+    /* An awake engine ECU broadcasting a red stop lamp: the set must
+     * refuse to crank at all. Frames injected directly — the plant's
+     * fake ECU sleeps while the engine is off. */
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    plant.mains_on = false; /* AMF wants the engine */
+
+    j1939_frame_t dm1 = {.id = 0x18FECA00U, .dlc = 8,
+                         .data = {0x10, 0xFF, 100, 0, 1, 1, 0xFF, 0xFF}};
+    j1939_frame_t tx;
+    uint32_t starter_ticks = 0;
+    for (uint32_t i = 0; i < 4000; i++) { /* 40 s */
+        plant_step(&plant, &out, &in);
+        if (i % 100 == 0) {
+            j1939_rx(&j, &dm1);
+        }
+        j1939_tick(&j, out.run_enable, &tx);
+        j1939_fill_inputs(&j, &in);
+        in.mode_auto = true;
+        gcu_app_tick(&app, &in, &out);
+        starter_ticks += out.starter;
+    }
+    CHECK(starter_ticks == 0);
+    CHECK(app.engine.state == ENG_STOPPED);
+}
+
+static void test_j1939_reset_after_ecu_sleeps(void)
+{
+    /* Shutdown while running; the engine ECU broadcasts the spin-down to
+     * 0 rpm and then sleeps. An operator reset minutes later must be
+     * accepted (standstill was seen), not held for the 45 s timeout. */
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    plant.mains_on = false;
+    run_j1939(&app, &plant, &j, &in, &out, 4000, true);
+    CHECK(app.engine.state == ENG_RUNNING);
+
+    /* plant_step clears the input struct, so per-tick flags are set
+     * inside the loop (same pattern as the legacy e-stop tests) */
+    j1939_frame_t fr[4];
+    j1939_frame_t tx;
+    for (uint32_t i = 0; i < 700; i++) { /* e-stop + spin-down, 7 s */
+        plant_step(&plant, &out, &in);
+        int n = plant_j1939_emit(&plant, &out, fr, 4);
+        for (int k = 0; k < n; k++) {
+            j1939_rx(&j, &fr[k]);
+        }
+        j1939_tick(&j, out.run_enable, &tx);
+        j1939_fill_inputs(&j, &in);
+        in.mode_auto = true;
+        in.emergency_stop = true;
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(app.engine.state == ENG_SHUTDOWN);
+    CHECK(app.engine.standstill_seen);
+    CHECK(!in.rpm_valid); /* ECU asleep again */
+
+    for (uint32_t i = 0; i < 50; i++) { /* reset well before 45 s timeout */
+        plant_step(&plant, &out, &in);
+        j1939_tick(&j, out.run_enable, &tx);
+        j1939_fill_inputs(&j, &in);
+        in.mode_auto = false;
+        in.key_stop = true;
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(app.engine.state == ENG_STOPPED);
+    CHECK(!protection_shutdown_active(&app.prot));
 }
 
 static void test_j1939_stale_lamps_drop(void)
@@ -577,15 +683,15 @@ static void test_j1939_stale_lamps_drop(void)
     j1939_frame_t dm1 = {.id = 0x18FECA00U, .dlc = 8,
                          .data = {0x10, 0xFF, 0, 0, 0, 0, 0xFF, 0xFF}};
     j1939_rx(&j, &dm1);
-    j1939_fill_inputs(&j, true, &in);
+    j1939_fill_inputs(&j, &in);
     CHECK(in.ecu_red_lamp);
 
     for (uint32_t i = 0; i <= J1939_DM1_TIMEOUT_TICKS; i++) {
-        j1939_tick(&j, &tx);
+        j1939_tick(&j, true, &tx);
     }
-    j1939_fill_inputs(&j, true, &in);
+    j1939_fill_inputs(&j, &in);
     CHECK(!in.ecu_red_lamp); /* stale severity is no severity */
-    CHECK(in.ecu_comms_lost);
+    CHECK(in.ecu_comms_lost); /* run-enable held past the boot grace */
 }
 
 int main(void)
@@ -613,6 +719,8 @@ int main(void)
     test_j1939_amber_is_warning_only();
     test_j1939_address_claim();
     test_j1939_stale_lamps_drop();
+    test_j1939_red_lamp_blocks_start();
+    test_j1939_reset_after_ecu_sleeps();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

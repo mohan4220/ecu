@@ -7,6 +7,7 @@ void engine_fsm_init(engine_fsm_t *f)
     f->attempt = 0;
     f->fail_to_start = false;
     f->fail_to_stop = false;
+    f->standstill_seen = false;
 }
 
 bool engine_fsm_running(const engine_fsm_t *f)
@@ -55,9 +56,19 @@ void engine_fsm_tick(engine_fsm_t *f, const gcu_config_t *cfg,
                   in->oil_pressure_bar >= cfg->crank_disconnect_oil_bar) ||
                  (in->gen_hz > 20.0f);
 
+    /* Standstill memory: while stopping/shut down, a fresh rpm reading
+     * below 10 proves the engine reached standstill — remember it, because
+     * a battery-powered J1939 engine ECU then goes to sleep and rpm turns
+     * stale before the operator walks over to reset. */
+    if ((f->state == ENG_STOPPING || f->state == ENG_SHUTDOWN) &&
+        in->rpm_valid && in->rpm < 10.0f) {
+        f->standstill_seen = true;
+    }
+
     switch (f->state) {
     case ENG_STOPPED:
         f->attempt = 0;
+        f->standstill_seen = false;
         if (cmd->start_requested && !cmd->immediate_stop) {
             /* Rotation inhibit: never crank an engine that is already
              * turning (e.g. controller rebooted while set was running). */
@@ -138,7 +149,7 @@ void engine_fsm_tick(engine_fsm_t *f, const gcu_config_t *cfg,
          * is NOT evidence of standstill: require dead generator output
          * plus a conservative spin-down time instead. */
         bool stopped_evidence =
-            (in->rpm_valid && in->rpm < 10.0f) ||
+            (in->rpm_valid && in->rpm < 10.0f) || f->standstill_seen ||
             (!in->rpm_valid && in->gen_hz < 5.0f &&
              f->state_ticks >= GCU_MS_TO_TICKS(cfg->stop_timeout_ms));
         if (cmd->alarm_reset && stopped_evidence) {
@@ -151,6 +162,10 @@ void engine_fsm_tick(engine_fsm_t *f, const gcu_config_t *cfg,
     /* Outputs derive purely from state. */
     out->preheat = (f->state == ENG_PREHEAT);
     out->starter = (f->state == ENG_CRANK);
-    out->run_enable = (f->state == ENG_CRANK || f->state == ENG_WARMUP ||
-                       f->state == ENG_RUNNING || f->state == ENG_COOLDOWN);
+    /* run_enable already during PREHEAT: gives a J1939 engine ECU its boot
+     * time before the starter engages (so crank-disconnect has live rpm),
+     * and merely energizes the fuel solenoid early in legacy mode. */
+    out->run_enable = (f->state == ENG_PREHEAT || f->state == ENG_CRANK ||
+                       f->state == ENG_WARMUP || f->state == ENG_RUNNING ||
+                       f->state == ENG_COOLDOWN);
 }

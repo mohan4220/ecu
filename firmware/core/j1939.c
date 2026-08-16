@@ -28,9 +28,10 @@ void j1939_init(j1939_state_t *j, uint8_t self_addr, uint8_t engine_addr)
     memset(j, 0, sizeof(*j));
     j->self_addr = self_addr;
     j->engine_addr = engine_addr;
-    /* Arbitrary fixed NAME: identity fields chosen once for this design;
-     * what matters for contention is that it is stable. */
-    j->name = 0x8000A0287D010001ULL;
+    /* Fixed NAME, AAC bit (63) CLEAR: this CA cannot re-arbitrate onto a
+     * different address, so on a lost claim it sends cannot-claim and goes
+     * silent (J1939-81 fixed-address behavior). */
+    j->name = 0x0000A0287D010001ULL;
     j->rpm_age = UINT32_MAX;
     j->oil_age = UINT32_MAX;
     j->coolant_age = UINT32_MAX;
@@ -55,9 +56,12 @@ void j1939_rx(j1939_state_t *j, const j1939_frame_t *f)
 
     if (pgn == PGN_CLAIM) {
         if (sa == j->self_addr && f->dlc >= 8) {
-            /* Contention: lower NAME keeps the address. */
-            if (name_of(f) < j->name) {
+            /* Contention: lower NAME keeps the address. An EQUAL name is a
+             * duplicate-NAME fault (cloned unit) — back off too, or two
+             * such units defend forever and storm the bus. */
+            if (name_of(f) <= j->name) {
                 j->addr_conflict = true;
+                j->cannot_claim_due = true;  /* J1939-81: announce the loss */
             } else {
                 j->claim_due = true;  /* defend the address */
             }
@@ -65,10 +69,19 @@ void j1939_rx(j1939_state_t *j, const j1939_frame_t *f)
         return;
     }
     if (pgn == PGN_RQST && f->dlc >= 3) {
+        /* Destination-specific requests are for the addressed node only. */
+        uint8_t da = (f->id >> 8) & 0xFFU;
+        if (da != j->self_addr && da != 0xFFU) {
+            return;
+        }
         uint32_t req = (uint32_t)f->data[0] | ((uint32_t)f->data[1] << 8) |
                        ((uint32_t)f->data[2] << 16);
-        if (req == PGN_CLAIM && !j->addr_conflict) {
-            j->claim_due = true;
+        if (req == PGN_CLAIM) {
+            if (j->addr_conflict) {
+                j->cannot_claim_due = true;
+            } else {
+                j->claim_due = true;
+            }
         }
         return;
     }
@@ -137,7 +150,17 @@ void j1939_rx(j1939_state_t *j, const j1939_frame_t *f)
     }
 }
 
-bool j1939_tick(j1939_state_t *j, j1939_frame_t *tx)
+static void claim_frame(const j1939_state_t *j, j1939_frame_t *tx, uint8_t sa)
+{
+    memset(tx, 0, sizeof(*tx));
+    tx->id = 0x18EEFF00U | sa;   /* prio 6, address claimed, DA=global */
+    tx->dlc = 8;
+    for (int i = 0; i < 8; i++) {
+        tx->data[i] = (uint8_t)(j->name >> (8 * i));
+    }
+}
+
+bool j1939_tick(j1939_state_t *j, bool run_enabled, j1939_frame_t *tx)
 {
     uint32_t *ages[] = {&j->rpm_age, &j->oil_age, &j->coolant_age,
                         &j->fuel_age, &j->dm1_age};
@@ -147,21 +170,31 @@ bool j1939_tick(j1939_state_t *j, j1939_frame_t *tx)
         }
     }
 
+    if (run_enabled) {
+        if (j->run_on_ticks < UINT32_MAX) {
+            j->run_on_ticks++;
+        }
+    } else {
+        j->run_on_ticks = 0;
+    }
+
+    /* Cannot-claim announces a lost address with the null SA (J1939-81
+     * wants a 0-153 ms pseudo-random delay before it; the CAN driver layer
+     * adds that jitter on target — the logic here stays deterministic). */
+    if (j->cannot_claim_due) {
+        j->cannot_claim_due = false;
+        claim_frame(j, tx, J1939_ADDR_NULL);
+        return true;
+    }
     if (j->claim_due && !j->addr_conflict) {
         j->claim_due = false;
-        memset(tx, 0, sizeof(*tx));
-        tx->id = 0x18EEFF00U | j->self_addr;   /* prio 6, claim, DA=global */
-        tx->dlc = 8;
-        for (int i = 0; i < 8; i++) {
-            tx->data[i] = (uint8_t)(j->name >> (8 * i));
-        }
+        claim_frame(j, tx, j->self_addr);
         return true;
     }
     return false;
 }
 
-void j1939_fill_inputs(const j1939_state_t *j, bool run_enabled,
-                       gcu_inputs_t *in)
+void j1939_fill_inputs(const j1939_state_t *j, gcu_inputs_t *in)
 {
     in->rpm = j->rpm;
     in->rpm_valid = j->rpm_age <= J1939_RPM_TIMEOUT_TICKS;
@@ -169,14 +202,14 @@ void j1939_fill_inputs(const j1939_state_t *j, bool run_enabled,
     in->oil_pressure_valid = j->oil_age <= J1939_OIL_TIMEOUT_TICKS;
     in->coolant_temp_c = j->coolant_c;
     in->coolant_temp_valid = j->coolant_age <= J1939_COOLANT_TIMEOUT_TICKS;
-    if (j->fuel_age <= J1939_FUEL_TIMEOUT_TICKS) {
-        in->fuel_level_pct = j->fuel_pct;
-    }
+    in->fuel_level_pct = j->fuel_pct;
+    in->fuel_level_valid = j->fuel_age <= J1939_FUEL_TIMEOUT_TICKS;
     /* Lamps hold only while DM1 is fresh — stale severity is no severity,
      * the comms-lost warning covers the silence instead. */
     bool dm1_fresh = j->dm1_age <= J1939_DM1_TIMEOUT_TICKS;
     in->ecu_red_lamp = dm1_fresh && j->red_lamp;
     in->ecu_amber_lamp = dm1_fresh && j->amber_lamp;
-    in->ecu_comms_lost =
-        run_enabled && j->rpm_age > J1939_RPM_TIMEOUT_TICKS;
+    /* Silence counts only after the ECU had its boot grace. */
+    in->ecu_comms_lost = j->run_on_ticks > J1939_ECU_BOOT_GRACE_TICKS &&
+                         j->rpm_age > J1939_RPM_TIMEOUT_TICKS;
 }

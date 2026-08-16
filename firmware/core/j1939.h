@@ -42,6 +42,11 @@ typedef struct {
 
 #define J1939_ADDR_GENSET_CONTROLLER 234U
 #define J1939_ADDR_ENGINE_1          0U
+#define J1939_ADDR_NULL              254U  /* cannot-claim source address */
+
+/* Grace after run-enable before silence counts as comms lost: the engine
+ * ECU needs boot time (run_enable is asserted from PREHEAT to provide it). */
+#define J1939_ECU_BOOT_GRACE_TICKS  GCU_MS_TO_TICKS(2000)
 
 typedef struct {
     uint8_t self_addr;
@@ -65,9 +70,12 @@ typedef struct {
     uint32_t dtc_spn;    /* first DTC of the last DM1, 0 = none */
     uint8_t dtc_fmi;
 
-    /* Address claim */
-    bool addr_conflict;  /* lost contention — we must stay silent */
-    bool claim_due;      /* a claim frame wants transmitting     */
+    /* Address claim (J1939-81, fixed address / AAC=0) */
+    bool addr_conflict;     /* lost contention: no normal TX allowed  */
+    bool claim_due;         /* address-claim frame wants transmitting */
+    bool cannot_claim_due;  /* cannot-claim (SA 254) wants transmitting */
+
+    uint32_t run_on_ticks;  /* ticks run_enable has been continuously on */
 } j1939_state_t;
 
 void j1939_init(j1939_state_t *j, uint8_t self_addr, uint8_t engine_addr);
@@ -75,16 +83,18 @@ void j1939_init(j1939_state_t *j, uint8_t self_addr, uint8_t engine_addr);
 /* Feed one received frame (any frame on the bus; non-engine ones ignored). */
 void j1939_rx(j1939_state_t *j, const j1939_frame_t *f);
 
-/* One 10 ms tick: age the data. Returns true when *tx must be sent. */
-bool j1939_tick(j1939_state_t *j, j1939_frame_t *tx);
+/*
+ * One 10 ms tick: age the data, track run-enable time for the boot grace.
+ * Returns true when *tx must be sent (address claim or cannot-claim).
+ */
+bool j1939_tick(j1939_state_t *j, bool run_enabled, j1939_frame_t *tx);
 
 /*
  * Overwrite the engine fields of *in from J1939 data (value + valid flag
- * from age). run_enabled gates the comms-lost flag: with K1 off the engine
- * ECU is unpowered and silence is normal.
+ * from age). Comms-lost asserts only after run-enable has been on past the
+ * ECU boot grace: with K1 off the engine ECU sleeps and silence is normal.
  */
-void j1939_fill_inputs(const j1939_state_t *j, bool run_enabled,
-                       gcu_inputs_t *in);
+void j1939_fill_inputs(const j1939_state_t *j, gcu_inputs_t *in);
 
 /* PGN of a 29-bit id (PDU2 keeps its group extension; PDU1 drops the DA). */
 uint32_t j1939_pgn(uint32_t id);

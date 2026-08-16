@@ -75,6 +75,7 @@ void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in)
     in->coolant_temp_c = p->coolant_c;
     in->coolant_temp_valid = true;
     in->fuel_level_pct = 80.0f;
+    in->fuel_level_valid = true;
 
     float gen_v = 0.0f, gen_hz = 0.0f;
     if (p->rpm > 1200.0f) { /* AVR excites near speed */
@@ -135,6 +136,11 @@ int plant_j1939_emit(const plant_t *p, const gcu_outputs_t *out,
     if (p->tick % 100 == 0 && n < max) {        /* ET1, 1 s */
         frame(&frames[n], 65262U);
         frames[n].data[0] = (uint8_t)(p->coolant_c + 40.0f);
+        n++;
+    }
+    if (p->tick % 100 == 25 && n < max) {       /* DD (fuel), 1 s */
+        frame(&frames[n], 65276U);
+        frames[n].data[1] = (uint8_t)(80.0f / 0.4f);
         n++;
     }
     if (p->tick % 100 == 50 && n < max) {       /* DM1, 1 s */

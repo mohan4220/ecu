@@ -46,7 +46,7 @@ void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in);
  * Fake common-rail engine ECU: emits this tick's J1939 broadcasts into
  * frames[] (capacity max) and returns the count. Powered by K1
  * (run_enable) and stays awake while the crank spins it.
- * Rates: EEC1 20 ms, EFL/P1 500 ms, ET1 1 s, DM1 1 s.
+ * Rates: EEC1 20 ms, EFL/P1 500 ms, ET1 1 s, DD 1 s, DM1 1 s.
  */
 int plant_j1939_emit(const plant_t *p, const gcu_outputs_t *out,
                      j1939_frame_t *frames, int max);

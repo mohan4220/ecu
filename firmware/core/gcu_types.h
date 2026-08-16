@@ -25,6 +25,7 @@ typedef struct {
     float coolant_temp_c;
     bool coolant_temp_valid;
     float fuel_level_pct; /* 0..100                                  */
+    bool fuel_level_valid;
 
     /* Electrical measurements */
     float gen_v[3];   /* generator L-N RMS volts per phase       */

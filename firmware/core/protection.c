@@ -140,8 +140,13 @@ void protection_tick(protection_state_t *st, const gcu_config_t *cfg,
      * telling us to shut down — treat it like our own shutdowns. Armed
      * only while running: a latched red lamp from a previous fault must
      * not block cranking after operator reset (the ECU re-evaluates). */
+    /* Worst-case red-lamp reaction while running ~2.1 s (1 Hz DM1 + 0.5 s
+     * qualify) — acceptable: the engine ECU is executing its own protection
+     * in parallel. gcu_app additionally refuses to START on a fresh lamp. */
     qualify(st, ALARM_ECU_RED_LAMP, engine_running && in->ecu_red_lamp, 500);
-    qualify(st, ALARM_ECU_WARNING, in->ecu_amber_lamp, 1000);
+    /* Amber armed while running only: a maintenance amber on a stopped set
+     * must not sound the horn all day (HMI shows the DTC regardless). */
+    qualify(st, ALARM_ECU_WARNING, engine_running && in->ecu_amber_lamp, 1000);
     qualify(st, ALARM_ECU_COMMS_LOST, in->ecu_comms_lost, 1000);
 }
 

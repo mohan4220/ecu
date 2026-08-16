@@ -58,8 +58,16 @@ void gcu_app_tick(gcu_app_t *app, const gcu_inputs_t *in, gcu_outputs_t *out)
      * (DSE/ComAp convention) so a reset can never cause an immediate
      * unattended crank — re-selecting AUTO is the conscious re-arm. */
     bool alarm_reset = in->key_stop && !in->mode_auto;
+    /* A FRESH red stop lamp from the engine ECU blocks starting: never
+     * crank an engine whose own ECU says stop. Only gates entry from
+     * STOPPED — during preheat/crank a booting ECU may briefly broadcast
+     * bulb-check lamps, and once running the protection alarm takes over.
+     * (Stale lamps drop in j1939_fill_inputs, so a reset after the ECU
+     * sleeps is not blocked.) */
+    bool start_inhibit =
+        in->ecu_red_lamp && app->engine.state == ENG_STOPPED;
     engine_cmd_t cmd = {
-        .start_requested = want_run && !shutdown,
+        .start_requested = want_run && !shutdown && !start_inhibit,
         .stop_requested = !want_run,
         .immediate_stop = shutdown || in->emergency_stop,
         .skip_cooldown = !in->mode_auto, /* manual stop = operator intent */
