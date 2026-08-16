@@ -66,38 +66,68 @@ FIXED = {
     "J1":  (29, 48, 90),      # battery in
     "J4":  (29, 68, 90),      # MPU pickup
     "J13": (29, 84, 90),      # charge alternator D+
-    # top edge
+    "J3":  (29, 108, 90),     # senders (moved off the bottom edge for J15)
+    "R88": (30, 150, 90),     # 220R 5W: near the edge, away from precision analog
+    # top edge: power chain then AC blocks. J5/J6/J15 are 8-pole bodies with
+    # only odd poles wired (10.16mm live pitch, see PAD_REMAP)
     "F1":  (46, 30, 0),       # blade fuse holder
-    "J12": (110, 31, 90),     # display ribbon, horizontal along top edge
-    "J5":  (152, 29, 0),      # GEN L1-L3+N
-    "J6":  (178, 29, 0),      # MAINS L1-L3+N
+    "J12": (100, 35, 0),      # display ribbon, vertical, cable exits upward
+    "J5":  (110, 29, 0),      # GEN L1-L3+N on poles 1/3/5/7
+    "J6":  (158, 29, 0),      # MAINS L1-L3+N on poles 1/3/5/7
     # right edge (pads run +y at rot 270)
     "J7":  (211, 44, 270),    # CT 3 pairs
+    # CT front-end lives at its terminal: TVS protects the pluggable
+    # connector, burden loop stays small (SME review)
+    "D50": (202, 47, 90), "D51": (202, 57, 90), "D52": (202, 67, 90),
+    "R50": (196, 47, 90), "R55": (196, 57, 90), "R59": (196, 67, 90),
     # bottom edge (pads run -x from anchor at rot 180)
     "J2":  (85, 161, 180),    # DIN x8 + wetting
-    "J3":  (112, 161, 180),   # senders
-    "J9":  (132, 161, 180),   # CAN
-    "J10": (152, 161, 180),   # RS485
-    "J8":  (204, 161, 180),   # relay contacts
+    "J9":  (108, 161, 180),   # CAN
+    "J10": (126, 161, 180),   # RS485
+    "J8":  (150, 161, 180),   # switched +24V relay outputs
+    "J15": (204, 161, 180),   # volt-free contactor pairs, odd poles
+    # power chain in electrical order, buck hot loop tight (SME review)
+    "D1":  (65, 31, 0),       # input TVS
+    "Q1":  (78, 31, 0),       # reverse-polarity P-FET
+    "FB1": (85, 28, 0),
+    "C1":  (88.5, 34, 0),       # bulk 100uF radial
+    "C3":  (46, 46, 90),      # buck VIN cap at U1
+    "U1":  (56, 46, 0),       # LM5164
+    "L2":  (72, 48, 0),
+    "C5":  (84, 43, 90), "C6": (84, 51, 90),
     # interior anchors
     "U12": (112, 88, 0),      # STM32F407 LQFP-100, board center
     "J11": (128, 106, 0),     # TC2030 SWD pads, next to MCU
     "J14": (100, 140, 0),     # debug UART header
-    "K1":  (151, 104, 0), "K2": (174, 104, 0), "K3": (197, 104, 0),
-    "K4":  (151, 131, 0), "K5": (174, 131, 0), "K6": (197, 131, 0),
+    # relays: GEN/MAINS (volt-free, K3/K4) share the middle column above
+    # J15's poles; their contact corridor gets a pour keepout
+    "K1":  (148, 104, 0), "K3": (169, 104, 0), "K2": (190, 104, 0),
+    "K5":  (148, 131, 0), "K4": (169, 131, 0), "K6": (190, 131, 0),
 }
+
+# J5/J6/J15: symbol pin n -> footprint pad 2n-1 (odd poles of the 8-pole block)
+PAD_REMAP = {r: {"1": "1", "2": "3", "3": "5", "4": "7"} for r in ("J5", "J6", "J15")}
 
 # shelf-pack zones per schematic sheet: (x0, y0, x1, y1)
 ZONES = {
     "Power":                (36, 26, 96, 62),
     "Analog inputs":        (36, 64, 92, 98),
     "Digital inputs + MPU": (36, 100, 92, 154),
-    "MCU":                  (96, 68, 136, 112),
-    "AC sensing":           (138, 38, 208, 92),
-    "Comms":                (96, 118, 126, 154),
-    "Relay drivers":        (129, 96, 141, 154),
+    "MCU":                  (96, 58, 138, 116),
+    "AC-HV":                (108, 38, 190, 56),  # 330k divider chains only
+    "AC sensing":           (138, 60, 205, 92),  # low-level AC/CT/VREF parts
+    "Comms":                (96, 118, 125, 154),
+    "Relay drivers":        (126, 94, 144, 155),
     "Display connector":    (96, 40, 136, 64),   # J12 is fixed; spares land here
 }
+
+# copper-pour keepouts (both layers): under the 415V terminals, under the
+# divider chains, and the volt-free contact corridor K3/K4 -> J15
+KEEPOUTS = [
+    (103, 20, 206, 37),     # J5/J6 bodies
+    (103, 37, 192, 58),     # 330k chain strip
+    (155, 96, 208, 166),    # volt-free relay contacts + corridor + J15
+]
 
 
 def load_fp(fpid):
@@ -168,16 +198,23 @@ def main():
             fp.SetPosition(V(x, y))
             placed_rects.append(fp_rect(fp, margin=0.5))
         else:
-            by_zone.setdefault(sheet, []).append(ref)
+            zone = "AC-HV" if val == "330k 1206" else sheet
+            by_zone.setdefault(zone, []).append(ref)
 
     for sheet, refs in by_zone.items():
         zx0, zy0, zx1, zy1 = ZONES[sheet]
-        # big parts first: fewer awkward gaps
-        refs.sort(key=lambda r: -(lambda bb: (bb[2]-bb[0])*(bb[3]-bb[1]))(fp_rect(fps[r])))
+        # wider spacing in the HV strip so pad-to-pad gaps clear the 1mm
+        # chain clearance rule; refs sorted so chain resistors stay grouped
+        margin = 1.2 if sheet == "AC-HV" else 0.6
+        if sheet == "AC-HV":
+            refs.sort()
+        else:
+            # big parts first: fewer awkward gaps
+            refs.sort(key=lambda r: -(lambda bb: (bb[2]-bb[0])*(bb[3]-bb[1]))(fp_rect(fps[r])))
         cx, cy, rowh = zx0, zy0, 0.0
         for ref in refs:
             fp = fps[ref]
-            bb = fp_rect(fp, margin=0.4)
+            bb = fp_rect(fp, margin=margin)
             w, h = bb[2] - bb[0], bb[3] - bb[1]
             while True:
                 if cx + w > zx1:                    # wrap row; if the whole
@@ -202,9 +239,10 @@ def main():
     missing = []
     for name, nodes in nets.items():
         for ref, pin in nodes:
+            padnum = PAD_REMAP.get(ref, {}).get(pin, pin)
             hit = 0
             for pad in fps[ref].Pads():
-                if pad.GetNumber() == pin:
+                if pad.GetNumber() == padnum:
                     pad.SetNet(netinfo[name])
                     hit += 1
             if not hit:
@@ -216,6 +254,23 @@ def main():
     for pad in fps["J12"].Pads():
         if pad.GetNumber() == "MP":
             pad.SetNet(netinfo["GND"])
+
+    # pour keepouts first (rule areas, both layers)
+    for kx0, ky0, kx1, ky1 in KEEPOUTS:
+        z = pcbnew.ZONE(board)
+        z.SetIsRuleArea(True)
+        z.SetDoNotAllowCopperPour(True)
+        z.SetDoNotAllowTracks(False)
+        z.SetDoNotAllowVias(False)
+        ls = pcbnew.LSET()
+        ls.AddLayer(pcbnew.F_Cu)
+        ls.AddLayer(pcbnew.B_Cu)
+        z.SetLayerSet(ls)
+        o = z.Outline()
+        o.NewOutline()
+        for x, y in ((kx0, ky0), (kx1, ky0), (kx1, ky1), (kx0, ky1)):
+            o.Append(MM(x), MM(y))
+        board.Add(z)
 
     # GND pour, both layers
     for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
@@ -242,38 +297,81 @@ def main():
     print("wrote", pcb_path)
 
     # ------------------------------------------------- custom DRC rules
-    # HV classes derived from the netlist: nets on J5/J6 terminals carry full
-    # 415 V line; interior nodes of the 4x330k divider chains sit at stepped
-    # potentials (>=85 Vpk) — both get widened clearance. The chain-bottom
-    # node (also touches a 5.62k) is /237 and stays at default clearance.
+    # HV classes derived from the netlist:
+    #  - line nets: J5/J6 pins 1-3 (415 V L-L between GEN and MAINS phases,
+    #    up to ~680 Vpk between unsynchronized sources) and the volt-free
+    #    contactor nets on J15 (independent AC sources) -> 3.0 mm clearance.
+    #    Pin 4 (N) lands on GND and stays in the default class.
+    #  - chain nets: interior nodes of the 4x330k dividers (85..255 Vpk)
+    #    -> 1.0 mm. The chain-bottom node (touches a 5.62k) is /237, default.
+    #  - each line net is exempted down to 1.0 mm against its OWN first chain
+    #    node (the two pads of the first 330k are 1.8 mm apart) — KiCad
+    #    applies the LAST matching rule, so exemptions come after the class.
     r330 = {r for r, (v, _, _) in comps.items() if v == "330k 1206"}
     r562 = {r for r, (v, _, _) in comps.items() if v.startswith("5.62k")}
-    hv_in, hv_mid = [], []
+    net_of = {}
+    for name, nodes in nets.items():
+        for ref, pin in nodes:
+            net_of[(ref, pin)] = name
+    hv_line = set()
+    for j in ("J5", "J6"):
+        for pin in ("1", "2", "3"):
+            n = net_of.get((j, pin))
+            if n and n != "GND":
+                hv_line.add(n)
+    for pin in ("1", "2", "3", "4"):
+        n = net_of.get(("J15", pin))
+        if n:
+            hv_line.add(n)
+    hv_mid = set()
     for name, nodes in nets.items():
         refs = {r for r, _ in nodes}
-        if refs & {"J5", "J6"}:
-            hv_in.append(name)
-        elif (refs & r330) and not (refs & r562):
-            hv_mid.append(name)
+        if name not in hv_line and (refs & r330) and not (refs & r562):
+            hv_mid.add(name)
+    # line net -> its own first interior node (other net of the shared 330k)
+    own_pairs = []
+    for line in hv_line:
+        for ref, pin in nets[line]:
+            if ref in r330:
+                other = net_of[(ref, "2" if pin == "1" else "1")]
+                if other in hv_mid:
+                    own_pairs.append((line, other))
 
     def cond(netnames):
         return " || ".join(f"A.NetName == '{n}'" for n in sorted(netnames))
 
-    dru = f"""(version 1)
+    parts = [f"""(version 1)
 
-# 415 V AC sense inputs (J5/J6 terminals up to the first 330k): creepage-class
-(rule ac_line_clearance
-  (condition "{cond(hv_in)}")
-  (constraint clearance (min 2.5mm)))
+# GENERATED by hardware/kicad/gen/gen_pcb.py — do not hand-edit; net names
+# here go stale if the schematic is re-annotated. Regenerate instead.
 
-# interior nodes of the 4x330k chains (~85..255 Vpk)
+# interior nodes of the 4x330k sense chains (~85..255 Vpk)
 (rule ac_chain_clearance
   (condition "{cond(hv_mid)}")
   (constraint clearance (min 1.0mm)))
-"""
+
+# 415 V field wiring: GEN/MAINS phases (J5/J6) and volt-free contactor
+# circuits (J15) — includes clearance to GND and to each other
+(rule ac_line_clearance
+  (condition "{cond(hv_line)}")
+  (constraint clearance (min 3.0mm)))
+
+# unwired pads (empty even poles of J5/J6/J15, mech pads): default clearance
+(rule netless_pads
+  (condition "A.NetName == ''")
+  (constraint clearance (min 0.2mm)))
+"""]
+    for i, (line, node) in enumerate(sorted(own_pairs), 1):
+        parts.append(f"""
+# a line net may sit 1.0mm from its OWN first divider node (same chain)
+(rule ac_own_chain_{i}
+  (condition "A.NetName == '{line}' && B.NetName == '{node}'")
+  (constraint clearance (min 1.0mm)))
+""")
     with open(f"{OUT}/ecu25-main.kicad_dru", "w") as f:
-        f.write(dru)
-    print(f"wrote ecu25-main.kicad_dru  ({len(hv_in)} line nets, {len(hv_mid)} chain nets)")
+        f.write("".join(parts))
+    print(f"wrote ecu25-main.kicad_dru  ({len(hv_line)} line nets, "
+          f"{len(hv_mid)} chain nets, {len(own_pairs)} own-chain exemptions)")
 
 
 if __name__ == "__main__":

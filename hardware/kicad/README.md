@@ -57,20 +57,28 @@ blocks for battery/AC/CT/relay field wiring, MKDS-1,5 for signal-level.
 
 `ecu25-main/ecu25-main.kicad_pcb` is a generated **starting point**, not a
 routed board: 200×150 mm 2-layer outline, M3 corner holes, field connectors on
-the edges (battery/MPU/D+ left, AC + display ribbon top, CT right, DIN /
-senders / comms / relay contacts bottom), relays in a 2×3 block by J8, MCU
-central, remaining parts shelf-packed inside their subsystem zone, all pads on
-nets, GND pour both layers. Regenerate:
+the edges (battery/MPU/D+/senders left, fuse + display ribbon + GEN/MAINS AC
+top, CT right, DIN / comms / relay outputs / contactor pairs bottom), relays
+in a 2×3 block with the volt-free GEN/MAINS pair above J15, MCU central, buck
+hot loop and CT front-ends at fixed positions, remaining parts shelf-packed
+inside their subsystem zone, all pads on nets, GND pour both layers with
+keepouts under the 415 V regions. J5/J6/J15 are 8-pole blocks with only the
+odd poles wired (pad remap in `gen_pcb.py`) — 10.16 mm live pitch for
+creepage. Regenerate:
 
 ```
 kicad-cli sch export netlist hardware/kicad/ecu25-main/ecu25-main.kicad_sch -o /tmp/ecu25.net
 python3 hardware/kicad/gen/gen_pcb.py /tmp/ecu25.net   # system python (needs pcbnew)
 ```
 
-`ecu25-main.kicad_dru` carries the HV clearance rules (2.5 mm on the J5/J6
-415 V nets, 1.0 mm inside the 4×330k divider chains) — pcbnew picks it up
-automatically. Routing guidance: battery input F1→Q1→buck ≥2 mm track;
-+24V_SW and relay coil/contact tracks ≥1 mm; keep the AC divider chains and
-their guard clearance away from the ADC analog zone; VREF_MID is a star net —
-route each channel's bias from the buffer side. Interactive routing (or
-freerouting via DSN export) is the remaining manual step, then DRC in pcbnew.
+`ecu25-main.kicad_dru` carries the HV clearance rules (3.0 mm for the J5/J6
+phase nets and the J15 volt-free contactor nets — GEN and MAINS are
+unsynchronized sources, so phase-to-phase can reach ~680 Vpk; 1.0 mm inside
+the 4×330k divider chains; per-chain exemptions so the first 330k's own pads
+don't false-trip) — pcbnew picks it up automatically. The file is generated:
+re-annotating nets by hand orphans the rules, regenerate instead. Routing
+guidance: battery input F1→Q1→buck ≥2 mm track; +24V_SW and relay
+coil/contact tracks ≥1 mm; 0.05 R CT shunts want wide copper spades and
+Kelvin-routed sense off the pad inner edges; VREF_MID is a star net — route
+each channel's bias from the buffer side. Interactive routing (or freerouting
+via DSN export) is the remaining manual step, then DRC in pcbnew.

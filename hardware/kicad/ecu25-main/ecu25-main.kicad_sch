@@ -1,6 +1,6 @@
 (kicad_sch (version 20230121) (generator ecu25_gen)
 
-  (uuid 9fef0f12-125a-4195-98b7-20c6b2c3be48)
+  (uuid 5e36e509-6403-4abe-a92a-19ceafdd22e0)
 
   (paper "A3")
   (lib_symbols)
@@ -8,7 +8,7 @@
   (sheet (at 25.4 25.4) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 08d9173f-9f93-4aa3-ab93-a4dc843e0c67)
+    (uuid e9c6fe2a-604f-4404-93db-bfa4bab9150f)
     (property "Sheetname" "Power" (id 0) (at 25.4 24.599999999999998 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -17,7 +17,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "2"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "2"))
       )
     )
   )
@@ -25,7 +25,7 @@
   (sheet (at 101.6 25.4) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 465b63ac-c67d-4990-bc18-cae9503f9737)
+    (uuid 0303a1b5-4aae-4982-ba30-423a8048d5db)
     (property "Sheetname" "Analog inputs" (id 0) (at 101.6 24.599999999999998 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -34,7 +34,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "3"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "3"))
       )
     )
   )
@@ -42,7 +42,7 @@
   (sheet (at 177.8 25.4) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 472f1a85-faa1-497b-9c6a-9da3e5fbdbe0)
+    (uuid 0eb81d06-e3e5-4c70-9867-7063192972fd)
     (property "Sheetname" "AC sensing" (id 0) (at 177.8 24.599999999999998 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -51,7 +51,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "4"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "4"))
       )
     )
   )
@@ -59,7 +59,7 @@
   (sheet (at 254.00000000000003 25.4) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 26273baf-0130-4f3c-a3e4-9ad11c1668cf)
+    (uuid cda3d794-a10e-4d46-9132-f98b3345538e)
     (property "Sheetname" "Digital inputs + MPU" (id 0) (at 254.00000000000003 24.599999999999998 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -68,7 +68,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "5"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "5"))
       )
     )
   )
@@ -76,7 +76,7 @@
   (sheet (at 25.4 66.03999999999999) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 02685fe4-a491-47c2-95c2-7076e1eed2a7)
+    (uuid 3fdd1bef-f7a7-4e6e-8763-6a8bcbde713b)
     (property "Sheetname" "Relay drivers" (id 0) (at 25.4 65.24 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -85,7 +85,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "6"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "6"))
       )
     )
   )
@@ -93,7 +93,7 @@
   (sheet (at 101.6 66.03999999999999) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 405b8039-04c3-417d-a1bd-cfacde8f8da2)
+    (uuid c16ba94f-c2a4-4487-9130-dd368a28dab3)
     (property "Sheetname" "Comms" (id 0) (at 101.6 65.24 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -102,7 +102,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "7"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "7"))
       )
     )
   )
@@ -110,7 +110,7 @@
   (sheet (at 177.8 66.03999999999999) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 16ef7f75-05c1-4e0e-81c3-b994b74e189b)
+    (uuid c0131dca-e3df-4317-81b6-4cd731d31288)
     (property "Sheetname" "MCU" (id 0) (at 177.8 65.24 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -119,7 +119,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "8"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "8"))
       )
     )
   )
@@ -127,7 +127,7 @@
   (sheet (at 254.00000000000003 66.03999999999999) (size 63.5 25.4)
     (stroke (width 0.1524) (type solid))
     (fill (color 0 0 0 0.0))
-    (uuid 87439dc0-73ba-4765-8173-0f57b60e0b84)
+    (uuid 6ba64869-e46b-4587-b845-8a181826c20d)
     (property "Sheetname" "Display connector" (id 0) (at 254.00000000000003 65.24 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
@@ -136,7 +136,7 @@
     )
     (instances
       (project "ecu25-main"
-        (path "/9fef0f12-125a-4195-98b7-20c6b2c3be48" (page "9"))
+        (path "/5e36e509-6403-4abe-a92a-19ceafdd22e0" (page "9"))
       )
     )
   )

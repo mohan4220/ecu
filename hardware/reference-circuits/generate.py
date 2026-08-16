@@ -351,7 +351,7 @@ def relay_driver():
     # contacts, drawn separately
     d += elm.Line().at((10.5, 1.2)).right(0.001).label("COM", loc="left")
     d += elm.Switch().right().label("K1 contacts 16A", loc="top")
-    d += elm.Line().right(0.5).label("NO → fuel solenoid\nterminal\n(K3/K4 GEN+MAINS:\nvolt-free COM+NO pairs)", loc="right")
+    d += elm.Line().right(0.5).label("NO → fuel solenoid\nterminal (J8)\n(K3/K4 GEN+MAINS: volt-free\nCOM+NO pairs on J15)", loc="right")
     save(d, "09-relay-driver")
 
 
@@ -647,7 +647,7 @@ def sw24():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
     d += elm.Line().right(0.001).label("+24V_PROT", loc="left")
-    d += elm.Fuse().right().label("F2 PTC 1.1A\n(resettable)", loc="top")
+    d += elm.Fuse().right().label("F2 PTC 1.1A 60V\n(resettable)", loc="top")
     d += (n := elm.Dot())
     d += elm.Zener().down().reverse().label("D80\nSMBJ33CA\n(bidir)", loc="bottom")
     d += elm.Ground()

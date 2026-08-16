@@ -200,7 +200,9 @@ rail(s, "+3V3", (c8.pin(1)[0] + 8, out[1]))
 
 # --- +24V_SW at y=220
 y = 220.0
-f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A", (60, y), rot=90,
+# 60V-rated 1812 PTC (e.g. 0ZCJ0110FF2G): F2 sees the ~53V load-dump clamp
+# while tripping into a stuck coil; common 33V parts are under-rated here
+f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A 60V", (60, y), rot=90,
              ref_at=(57, y - 6.5), val_at=(57, y - 4))
 rail(s, "+24V", (f2.pin(1)[0] - 6, y))
 s.wire((f2.pin(1)[0] - 6, y), f2.pin(1))
@@ -714,9 +716,12 @@ s.text((20, 18), "6x G5LE-1 24V relays, 2N7002K low-side drivers, SS34 flyback."
                  " GEN/MAINS contactor contacts are VOLT-FREE; panel wiring must"
                  " also hardware-interlock the contactors.", size=2.0)
 
-j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 8, 25, 90)
+j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 4, 25, 90)
 s.text((14, 30), "J8: 1=FUEL 2=START 3=HORN 4=PREHEAT (switched +24V)", size=1.5)
-s.text((14, 34), "    5/6=GEN contact pair  7/8=MAINS contact pair (volt-free)", size=1.5)
+j15 = conn(s, "J15", "Screw_Terminal_CONTACTOR", 4, 25, 150)
+s.text((14, 140), "J15: GEN COM/NO, MAINS COM/NO (volt-free contactor pairs).", size=1.5)
+s.text((14, 144), "Separate block from J8: the two contactor coil circuits ride", size=1.5)
+s.text((14, 148), "different AC sources; 8-pole body, odd poles wired (creepage).", size=1.5)
 
 RELAYS = [
     # (name, K, Q, Rgate, Rpd, Dfly, signal, x-column, y, volt-free)
@@ -741,45 +746,55 @@ for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
     s.junction(gpin)
     gnd(s, rpd_.pin(2))
     gnd(s, spin_)
-    # relay placed so its coil-switch pin (pin 1) sits directly above the
-    # FET drain column: one straight vertical drop, no row collisions
-    k = s.place("Relay:G5LE-1", kref, "G5LE-1 24V", (dpin[0] - 5.08, yc - 18),
-                ref_at=(dpin[0] - 22, yc - 20), val_at=(dpin[0] - 26, yc - 17.5))
-    coil_sw = k.pin(1)    # right coil pin, directly above drain
-    coil_hot = k.pin(2)   # left coil pin -> +24V_SW
+    # G5LE-1 lib symbol pin map (decoded from the symbol graphics, matches
+    # the Relay_SPDT_Omron-G5LE-1 footprint): coil = pins 2 (bottom-left)
+    # and 5 (top-left); COM = 1 (bottom-right), NO = 3 (top-right),
+    # NC = 4 (top-mid). SME review catch: the earlier 1/2-coil 3/4/5-contact
+    # assumption netted every relay wrong.
+    # Place so the coil-switched pin 2 sits directly above the FET drain.
+    k = s.place("Relay:G5LE-1", kref, "G5LE-1 24V", (dpin[0] + 5.08, yc - 18),
+                ref_at=(dpin[0] - 6, yc - 34), val_at=(dpin[0] - 6, yc - 31.5))
+    coil_sw = k.pin(2)    # bottom-left coil pin, directly above drain
+    coil_hot = k.pin(5)   # top-left coil pin -> +24V_SW
     s.wire(coil_sw, dpin)
-    s.junction(dpin)
-    rowh = coil_hot[1] + 4
-    s.glabel((coil_hot[0] - 8, rowh), "+24V_SW", rot=180)
-    s.wire((coil_hot[0] - 8, rowh), (coil_hot[0], rowh), coil_hot)
-    # flyback horizontal between hot column and drain column, K toward hot
-    dmy = snap(yc - 2.54)
-    dfly_ = s.place("Device:D_Schottky", dfly, "SS34",
-                    ((coil_hot[0] + dpin[0]) / 2, dmy), rot=0,
-                    ref_at=((coil_hot[0] + dpin[0]) / 2 - 1.3, dmy + 3.2),
-                    val_at=((coil_hot[0] + dpin[0]) / 2 - 1.3, dmy + 5.7))
-    kk, aa = dfly_.pin(1), dfly_.pin(2)   # rot 0: pin1 K left, pin2 A right
-    s.wire(kk, (coil_hot[0], dmy), (coil_hot[0], rowh))
-    s.junction((coil_hot[0], snap(rowh)))
-    s.wire(aa, (dpin[0], dmy), dpin)
-    # contacts: pin 3,4,5 top; route COM and NO up then right to labels
-    com, no_, nc_ = k.pin(3), k.pin(4), k.pin(5)
+    rowh = snap(coil_hot[1] - 4)
+    s.glabel((coil_hot[0] - 14, rowh), "+24V_SW", rot=180)
+    s.wire((coil_hot[0] - 14, rowh), (coil_hot[0], rowh), coil_hot)
+    # flyback vertical beside the coil column: K up to the +24V_SW row,
+    # A down to the coil-switch/drain run
+    xf = snap(coil_hot[0] - 7.62)
+    dfly_ = s.place("Device:D_Schottky", dfly, "SS34", (xf, yc - 18), rot=270,
+                    ref_at=(xf - 6.5, yc - 19.3), val_at=(xf - 6.5, yc - 16.7))
+    kk, aa = dfly_.pin(1), dfly_.pin(2)
+    if kk[1] > aa[1]:
+        raise SystemExit(f"{dfly}: flyback rot=270 no longer K-top/A-bottom")
+    s.wire(kk, (xf, rowh))
+    s.junction((xf, rowh))
+    ydrop = snap(yc - 6.35)
+    s.wire(aa, (xf, ydrop), (coil_sw[0], ydrop))
+    s.junction((coil_sw[0], ydrop))
+    # contacts: COM bottom-right, NO top-right, NC unused
+    com, no_, nc_ = k.pin(1), k.pin(3), k.pin(4)
     s.no_connect(nc_)
-    lx = max(com[0], no_[0]) + 16
-    s.wire(com, (com[0], com[1] - 3), (lx, com[1] - 3))
-    s.wire(no_, (no_[0], no_[1] - 7), (lx, no_[1] - 7))
+    lx = snap(no_[0] + 10)
+    ycom = snap(com[1] + 3)
+    yno = snap(no_[1] - 3)
+    s.wire(com, (com[0], ycom), (lx, ycom))
+    s.wire(no_, (no_[0], yno), (lx, yno))
     if voltfree:
-        s.label((lx, com[1] - 3), f"{name}_COM")
-        s.label((lx, no_[1] - 7), f"{name}_NO")
+        s.label((lx, ycom), f"{name}_COM")
+        s.label((lx, yno), f"{name}_NO")
     else:
-        s.glabel((lx, com[1] - 3), "+24V_SW")
-        s.label((lx, no_[1] - 7), f"{name}_OUT")
+        s.glabel((lx, ycom), "+24V_SW")
+        s.label((lx, yno), f"{name}_OUT")
 
-# terminal wiring
-OUTS = ["FUEL_OUT", "START_OUT", "HORN_OUT", "PREHEAT_OUT",
-        "GEN_COM", "GEN_NO", "MAINS_COM", "MAINS_NO"]
-for i, net in enumerate(OUTS):
+# terminal wiring: J8 = switched +24V outputs, J15 = volt-free contact pairs
+for i, net in enumerate(["FUEL_OUT", "START_OUT", "HORN_OUT", "PREHEAT_OUT"]):
     tp = j8.pin(i + 1)
+    s.wire(tp, (tp[0] + 4, tp[1]))
+    s.label((tp[0] + 4, tp[1]), net)
+for i, net in enumerate(["GEN_COM", "GEN_NO", "MAINS_COM", "MAINS_NO"]):
+    tp = j15.pin(i + 1)
     s.wire(tp, (tp[0] + 4, tp[1]))
     s.label((tp[0] + 4, tp[1]), net)
 # map relay-side labels to terminal-side labels (same names where needed)
@@ -1282,10 +1297,15 @@ FP_BY_REF = {
     "J2":  _MKDS15.format(n=10),
     "J3":  _MKDS15.format(n=4),
     "J4":  _MKDS15.format(n=2),
-    "J5":  _MKDS3.format(n=4),
-    "J6":  _MKDS3.format(n=4),
+    # J5/J6/J15 carry 415V-class field wiring: 8-pole 5.08mm blocks with only
+    # the ODD poles wired (pad remap in gen_pcb.py) -> 10.16mm live-to-live
+    # pitch, which meets PD2 creepage where a fully-populated 5.08mm block
+    # (400V class) does not (SME review catch)
+    "J5":  _MKDS3.format(n=8),
+    "J6":  _MKDS3.format(n=8),
     "J7":  _MKDS3.format(n=6),
-    "J8":  _MKDS3.format(n=8),
+    "J8":  _MKDS3.format(n=4),
+    "J15": _MKDS3.format(n=8),
     "J9":  _MKDS15.format(n=3),
     "J10": _MKDS15.format(n=3),
     "J11": "Connector:Tag-Connect_TC2030-IDC-NL_2x03_P1.27mm_Vertical",

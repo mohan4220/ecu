@@ -237,7 +237,7 @@
 
 **Reading the result:** without the diode the drain spikes to hundreds of volts at every turn-off (in real life: dead FET within cycles). With it: flat clamp at ≈24.4 V. This before/after is the whole lesson of flyback in one plot. Check FET V_DS never exceeds 60 % of rating in the *with* case.
 
-**Contact wiring (KiCad, J8):** FUEL/START/HORN/PREHEAT contacts switch +24V_SW out to their terminals; the GEN (K3) and MAINS (K4) contactor channels are **volt-free pairs** — COM and NO both go to terminals, because contactor coils run on their own AC source (gen side / mains side respectively). K1 run-enable energizes from PREHEAT onward, not just at crank: a J1939 engine ECU gets its boot time before the starter engages, and in legacy mode the fuel solenoid is simply energized a few seconds early.
+**Contact wiring (KiCad):** FUEL/START/HORN/PREHEAT contacts switch +24V_SW out to J8; the GEN (K3) and MAINS (K4) contactor channels are **volt-free pairs** — COM and NO both go to terminals on a separate block J15, because contactor coils run on their own AC source (gen side / mains side respectively), and the two circuits can sit ~650 Vpk apart — J15 is an 8-pole body with only odd poles wired so the creepage between them is real (PCB review catch). K1 run-enable energizes from PREHEAT onward, not just at crank: a J1939 engine ECU gets its boot time before the starter engages, and in legacy mode the fuel solenoid is simply energized a few seconds early.
 
 **Failure modes:** relay contacts (not coil) wear — the fuel/starter relays switch inductive DC, hardest duty; contact rating and external suppression matter more than this driver. Firmware bug energizing K3+K4 together is caught by the panel's hardware interlock — never rely on this circuit alone.
 
@@ -349,7 +349,7 @@
 
 **Why needed:** coils are the board's biggest, dirtiest load. A stuck relay or shorted coil must not drag down the rail that feeds the MCU's buck converter — fault isolation between "muscle" supply and "brain" supply.
 
-**How it works:** F2, a PTC resettable fuse (1.1 A hold), passes the normal ≈0.4 A of six coils but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
+**How it works:** F2, a PTC resettable fuse (1.1 A hold, **60 V-rated** — while tripped it stands off the full rail including the ~53 V load-dump clamp; common 33 V 1812 parts are under-rated here, PCB review catch), passes the normal ≈0.4 A of six coils but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
 
 **Ideal response:** transparent at ≤ 0.4 A forever; instant disconnect on any fault; instant recovery.
 

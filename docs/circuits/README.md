@@ -66,6 +66,7 @@ multiply by channel count for the full board.
 - Fault current if output shorted: 340 V / 1.32 MΩ ≈ 0.26 mA — inherently safe.
 - 4 series 1206 → ≈85 Vpk per resistor (200 V rated) + creepage across the chain.
 - R45/C40: effective fc ≈ 1.1 kHz (source ≈ 5.62k∥1.32M + 1k with 22 nF), −2.6° at 50 Hz. CT channel: R53 6.8k + 22 nF → fc ≈ 1.06 kHz — matched within ≈0.1°, so the phase error cancels in power/PF.
+- Terminals (KiCad, J5/J6): 8-pole 5.08 mm blocks with only the **odd poles wired** → 10.16 mm live-to-live pitch. 415 V L-L rides between adjacent phases (and up to ~680 Vpk GEN-phase to MAINS-phase between unsynchronized sources); a fully-populated 400 V-class 5.08 mm block doesn't meet PD2 creepage for that (PCB review catch). On-board: 3.0 mm clearance class + copper-pour keepout under the terminals and divider chains.
 
 ### 08 — CT input
 - Burden 0.05 Ω: 5 A RMS → 0.25 V RMS, dissipation 1.25 W on a 3 W part (42 % derating).
@@ -76,7 +77,8 @@ multiply by channel count for the full board.
 ### 09 — Relay driver
 - 2N7002K (60 V): coil 24 V / 360 Ω → 67 mA. 60 V rating clears the 53 V TVS clamp with margin — a 30 V FET (AO3400) would not. R61 keeps the FET off during MCU reset.
 - SS34 flyback clamps coil kickback to ~0.4 V above +24V_SW.
-- Contacts (KiCad, J8): FUEL/START/HORN/PREHEAT switch +24V_SW to their terminals; GEN and MAINS contactor channels are **volt-free pairs** (COM+NO both to terminals) — contactor coils run on their own AC source, and the panel hardware interlock stays load-bearing.
+- Contacts (KiCad): FUEL/START/HORN/PREHEAT switch +24V_SW to J8 (4-pole); GEN and MAINS contactor channels are **volt-free pairs** (COM+NO) on their own block **J15** — contactor coils run on their own AC source, and the panel hardware interlock stays load-bearing. J15 is an 8-pole 5.08 mm body with only the **odd poles wired** (10.16 mm live pitch): the two contactor circuits ride different AC sources (up to ~650 Vpk between them), which a fully-populated 5.08 mm block can't hold creepage for (PCB review catch — same reason J8's old poles 5–8 moved off it).
+- G5LE-1 pin map (lib symbol/footprint): coil = pins 2/5, COM = 1, NO = 3, NC = 4 unused (PCB review catch — an earlier assumption of 1/2 = coil netted every relay wrong).
 - K1 run-enable energizes from PREHEAT onward (not just crank): gives a J1939 engine ECU its boot time before the starter engages; in legacy mode it merely energizes the fuel solenoid early.
 
 ### 10/11 — Comms
@@ -95,7 +97,7 @@ multiply by channel count for the full board.
 - 10k/10k from 3.3 V → 1.65 V; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF, dual feedback (final values, in KiCad): R93 10k takes DC feedback from after the 47 Ω, C93 100 nF closes the loop at AC directly from the op-amp output — the R92·C91 pole sits outside the fast loop, so low output impedance at 50 Hz without oscillation and no bias crosstalk between channels.
 
 ### 14 — +24V_SW
-- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. Local SMBJ33**CA** (bidirectional, matching the two-anode TVS symbol) clamps coil-switching transients — the unidirectional SMBJ33A would risk a footprint-time cathode-to-GND forward short (schematic review catch).
+- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. **60 V-rated part** (e.g. 0ZCJ0110FF2G): while tripping it sees the ~53 V load-dump clamp, and common 33 V 1812 PTCs are under-rated for that (PCB review catch). Local SMBJ33**CA** (bidirectional, matching the two-anode TVS symbol) clamps coil-switching transients — the unidirectional SMBJ33A would risk a footprint-time cathode-to-GND forward short (schematic review catch).
 
 ### 15 — Battery sense
 - 100k/6.8k = ÷15.7 → 32 V reads 2.04 V (ADC max 3.3 V ⇒ headroom to 51 V). 12-bit LSB ≈ 12.6 mV of battery.
@@ -120,6 +122,8 @@ Independently design-reviewed 2026-08-11 (all calculations re-derived, all diagr
 KiCad capture independently SME-reviewed 2026-08-16 (netlist re-derived against this sheet, probes run): 3 criticals + 6 majors found and fixed — buck RON short, comparator input merge, supercap diode reversed, UVLO divider defeated, RS485 bias polarity, floating spare op-amp, LED reversed, VREF dual feedback captured (R93/C93), D80 → SMBJ33CA. Re-verified against a fresh netlist: ship. The schematic (`hardware/kicad/ecu25-main/`) carries the final refdes; this sheet keeps the design math.
 
 J1939 firmware module reviewed the same way (probe programs, J1939-71/-73/-81 conformance) — see firmware commit history for the fix list.
+
+Footprint assignment + starting-point PCB independently SME-reviewed 2026-08-16 (pin-function mapping probes, ratings vs this sheet, IEC 60664-1 clearance/creepage): 1 critical — G5LE-1 relay pin map wrong (coil is 2/5, COM 1, NO 3; all six relays were netted dead with GEN/MAINS contacts tied to logic GND) — plus: GND had landed in the 415 V clearance class; 2.5 mm was insufficient for GEN-vs-MAINS (~680 Vpk); MKDS-3 fully-populated under-rated for 415 V L-L (→ 8-pole odd-wired J5/J6/J15, volt-free pairs split off J8 onto J15); volt-free nets unclassified; CT front-end and buck hot-loop parts packed far from their function; PTC 33 V under-rated (→ 60 V). All fixed and re-verified. Residual (accepted): 0.05 R shunt needs wide copper + Kelvin routing at layout time; DRU net names go stale if the project is re-annotated by hand (regenerate instead).
 
 ## Regenerating
 
