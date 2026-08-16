@@ -32,6 +32,9 @@ typedef enum {
     ALARM_FAIL_TO_START,
     ALARM_FAIL_TO_STOP,
     ALARM_SENSOR_LOSS, /* rpm/oil sources invalid while running */
+    ALARM_ECU_RED_LAMP,   /* engine ECU commands stop (DM1)     */
+    ALARM_ECU_WARNING,    /* engine ECU amber lamp (DM1)        */
+    ALARM_ECU_COMMS_LOST, /* J1939 silent while run enabled     */
     ALARM_COUNT
 } alarm_id_t;
 

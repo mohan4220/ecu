@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../core/gcu_app.h"
+#include "../core/j1939.h"
 #include "../sim/plant.h"
 
 static int failures = 0;
@@ -393,6 +394,200 @@ static void test_crank_disconnect_time(void)
     CHECK(starter_ticks < 300);
 }
 
+/* ------------------------------------------------------------ J1939 tests */
+
+/* J1939 mode: engine data comes ONLY from the fake ECU's frames; the
+ * analog values plant_step wrote are overwritten every tick. */
+static void run_j1939(gcu_app_t *app, plant_t *plant, j1939_state_t *j,
+                      gcu_inputs_t *in, gcu_outputs_t *out, uint32_t ticks,
+                      bool auto_mode)
+{
+    for (uint32_t i = 0; i < ticks; i++) {
+        plant_step(plant, out, in);
+        j1939_frame_t fr[4];
+        j1939_frame_t tx;
+        int n = plant_j1939_emit(plant, out, fr, 4);
+        for (int k = 0; k < n; k++) {
+            j1939_rx(j, &fr[k]);
+        }
+        j1939_tick(j, &tx);
+        j1939_fill_inputs(j, out->run_enable, in);
+        in->mode_auto = auto_mode;
+        gcu_app_tick(app, in, out);
+        CHECK(!(out->gen_contactor && out->mains_contactor));
+    }
+}
+
+static void test_j1939_spn_scaling(void)
+{
+    j1939_state_t j;
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+
+    /* EEC1: 1500 rpm -> raw 12000 = 0x2EE0, bytes 4-5 LE, SA 0x00 */
+    j1939_frame_t f = {.id = 0x18F00400U, .dlc = 8,
+                       .data = {0xFF, 0xFF, 0xFF, 0xE0, 0x2E, 0xFF, 0xFF, 0xFF}};
+    j1939_rx(&j, &f);
+    CHECK(j.rpm > 1499.9f && j.rpm < 1500.1f);
+    CHECK(j.rpm_age == 0);
+
+    /* ET1: 90 C -> raw 130 */
+    j1939_frame_t f2 = {.id = 0x18FEEE00U, .dlc = 8, .data = {130}};
+    j1939_rx(&j, &f2);
+    CHECK(j.coolant_c > 89.9f && j.coolant_c < 90.1f);
+
+    /* EFL/P1: 4.0 bar = 400 kPa -> raw 100 in byte 4 */
+    j1939_frame_t f3 = {.id = 0x18FEEF00U, .dlc = 8,
+                        .data = {0xFF, 0xFF, 0xFF, 100, 0xFF, 0xFF, 0xFF, 0xFF}};
+    j1939_rx(&j, &f3);
+    CHECK(j.oil_bar > 3.99f && j.oil_bar < 4.01f);
+
+    /* not-available rpm (0xFFFF) must NOT update the value or the age */
+    j1939_frame_t f4 = {.id = 0x18F00400U, .dlc = 8,
+                        .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
+    j1939_frame_t tx;
+    j1939_tick(&j, &tx); /* age 1 */
+    j1939_rx(&j, &f4);
+    CHECK(j.rpm > 1499.9f);
+    CHECK(j.rpm_age == 1);
+
+    /* frames from a different source address are ignored */
+    j1939_frame_t f5 = {.id = 0x18F00417U, .dlc = 8,
+                        .data = {0xFF, 0xFF, 0xFF, 0x00, 0x10, 0xFF, 0xFF, 0xFF}};
+    j1939_rx(&j, &f5);
+    CHECK(j.rpm > 1499.9f);
+}
+
+static void test_j1939_auto_cycle(void)
+{
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+
+    run_j1939(&app, &plant, &j, &in, &out, 500, true);
+    CHECK(app.engine.state == ENG_STOPPED);
+    CHECK(!in.rpm_valid); /* engine ECU unpowered, silence is normal */
+    CHECK(!in.ecu_comms_lost);
+
+    plant.mains_on = false;
+    run_j1939(&app, &plant, &j, &in, &out, 4000, true);
+    CHECK(engine_fsm_running(&app.engine));
+    CHECK(app.amf.state == AMF_ON_GEN);
+    CHECK(in.rpm_valid);
+    CHECK(in.rpm > 1400.0f && in.rpm < 1600.0f);
+    CHECK(in.oil_pressure_valid);
+    CHECK(in.coolant_temp_valid);
+    CHECK(!app.prot.active[ALARM_ECU_COMMS_LOST]);
+
+    plant.mains_on = true;
+    app.cfg.mains_return_qualify_ms = 5000;
+    app.cfg.cooldown_ms = 5000;
+    run_j1939(&app, &plant, &j, &in, &out, 3000, true);
+    CHECK(app.engine.state == ENG_STOPPED);
+    CHECK(out.mains_contactor && !out.gen_contactor);
+}
+
+static void test_j1939_comms_lost(void)
+{
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    plant.mains_on = false;
+    run_j1939(&app, &plant, &j, &in, &out, 4000, true);
+    CHECK(app.engine.state == ENG_RUNNING);
+
+    plant.j1939_silent = true; /* harness cut while running */
+    run_j1939(&app, &plant, &j, &in, &out, 200, true); /* 2 s */
+    CHECK(!in.rpm_valid);
+    CHECK(app.prot.active[ALARM_ECU_COMMS_LOST]); /* warning at 1 s */
+    CHECK(engine_fsm_running(&app.engine));       /* not yet shut down */
+
+    run_j1939(&app, &plant, &j, &in, &out, 200, true); /* total 4 s */
+    CHECK(app.prot.active[ALARM_SENSOR_LOSS]);    /* shutdown at 3 s */
+    CHECK(!out.run_enable);
+}
+
+static void test_j1939_red_lamp_shutdown(void)
+{
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    plant.mains_on = false;
+    run_j1939(&app, &plant, &j, &in, &out, 4000, true);
+    CHECK(app.engine.state == ENG_RUNNING);
+
+    plant.dm1_red_lamp = true;
+    run_j1939(&app, &plant, &j, &in, &out, 300, true); /* DM1 1s + qual 0.5s */
+    CHECK(app.prot.active[ALARM_ECU_RED_LAMP]);
+    CHECK(!out.run_enable);
+    CHECK(j.dtc_spn == 100 && j.dtc_fmi == 1);
+}
+
+static void test_j1939_amber_is_warning_only(void)
+{
+    gcu_app_t app; plant_t plant; gcu_inputs_t in; gcu_outputs_t out;
+    j1939_state_t j;
+    fresh(&app, &plant, &in, &out);
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+    plant.mains_on = false;
+    plant.dm1_amber_lamp = true;
+    run_j1939(&app, &plant, &j, &in, &out, 4000, true);
+    CHECK(app.prot.active[ALARM_ECU_WARNING]);
+    CHECK(engine_fsm_running(&app.engine)); /* keeps running */
+    CHECK(app.amf.state == AMF_ON_GEN);
+}
+
+static void test_j1939_address_claim(void)
+{
+    j1939_state_t j;
+    j1939_frame_t tx;
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+
+    /* power-up claim */
+    CHECK(j1939_tick(&j, &tx));
+    CHECK(j1939_pgn(tx.id) == 60928U);
+    CHECK((tx.id & 0xFFU) == J1939_ADDR_GENSET_CONTROLLER);
+    CHECK(!j1939_tick(&j, &tx)); /* sent once */
+
+    /* competitor with HIGHER name -> we defend (re-claim) */
+    j1939_frame_t rival = {.id = 0x18EEFF00U | J1939_ADDR_GENSET_CONTROLLER,
+                           .dlc = 8,
+                           .data = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}};
+    j1939_rx(&j, &rival);
+    CHECK(!j.addr_conflict);
+    CHECK(j1939_tick(&j, &tx));
+
+    /* competitor with LOWER name -> we lose and go silent */
+    memset(rival.data, 0x00, 8);
+    j1939_rx(&j, &rival);
+    CHECK(j.addr_conflict);
+    CHECK(!j1939_tick(&j, &tx));
+}
+
+static void test_j1939_stale_lamps_drop(void)
+{
+    j1939_state_t j;
+    j1939_frame_t tx;
+    gcu_inputs_t in;
+    memset(&in, 0, sizeof(in));
+    j1939_init(&j, J1939_ADDR_GENSET_CONTROLLER, J1939_ADDR_ENGINE_1);
+
+    j1939_frame_t dm1 = {.id = 0x18FECA00U, .dlc = 8,
+                         .data = {0x10, 0xFF, 0, 0, 0, 0, 0xFF, 0xFF}};
+    j1939_rx(&j, &dm1);
+    j1939_fill_inputs(&j, true, &in);
+    CHECK(in.ecu_red_lamp);
+
+    for (uint32_t i = 0; i <= J1939_DM1_TIMEOUT_TICKS; i++) {
+        j1939_tick(&j, &tx);
+    }
+    j1939_fill_inputs(&j, true, &in);
+    CHECK(!in.ecu_red_lamp); /* stale severity is no severity */
+    CHECK(in.ecu_comms_lost);
+}
+
 int main(void)
 {
     test_auto_start_on_mains_fail();
@@ -411,6 +606,13 @@ int main(void)
     test_fail_to_stop();
     test_estop_not_resettable_while_pressed();
     test_remote_start_runs_offload();
+    test_j1939_spn_scaling();
+    test_j1939_auto_cycle();
+    test_j1939_comms_lost();
+    test_j1939_red_lamp_shutdown();
+    test_j1939_amber_is_warning_only();
+    test_j1939_address_claim();
+    test_j1939_stale_lamps_drop();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

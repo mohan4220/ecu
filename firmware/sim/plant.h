@@ -11,6 +11,7 @@
 #define PLANT_H
 
 #include "../core/gcu_types.h"
+#include "../core/j1939.h"
 
 typedef struct {
     /* State */
@@ -27,11 +28,27 @@ typedef struct {
     bool stuck_fuel;        /* engine keeps running after fuel cut */
     bool mains_on;          /* utility present                   */
     float load_pct;         /* 0..100 applied when gen contactor closed */
+
+    /* Fake engine-ECU (J1939 mode) fault injection */
+    bool j1939_silent;      /* bus dead / harness cut            */
+    bool dm1_red_lamp;      /* engine ECU demands stop           */
+    bool dm1_amber_lamp;    /* engine ECU warns                  */
+
+    uint32_t tick;          /* advances in plant_step            */
 } plant_t;
 
 void plant_init(plant_t *p);
 
 /* Advance one tick under the controller's outputs; fill controller inputs. */
 void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in);
+
+/*
+ * Fake common-rail engine ECU: emits this tick's J1939 broadcasts into
+ * frames[] (capacity max) and returns the count. Powered by K1
+ * (run_enable) and stays awake while the crank spins it.
+ * Rates: EEC1 20 ms, EFL/P1 500 ms, ET1 1 s, DM1 1 s.
+ */
+int plant_j1939_emit(const plant_t *p, const gcu_outputs_t *out,
+                     j1939_frame_t *frames, int max);
 
 #endif /* PLANT_H */

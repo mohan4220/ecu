@@ -14,6 +14,8 @@ alarm_class_t protection_class(alarm_id_t id)
     case ALARM_BATT_LOW:
     case ALARM_BATT_HIGH:
     case ALARM_LOW_COOLANT_LEVEL:
+    case ALARM_ECU_WARNING:
+    case ALARM_ECU_COMMS_LOST:
         return ALARM_CLASS_WARNING;
     default:
         return ALARM_CLASS_SHUTDOWN;
@@ -29,6 +31,7 @@ const char *protection_name(alarm_id_t id)
         "GEN OVER-HZ",   "OVERCURRENT",    "CHARGE FAIL",
         "BATT LOW",      "BATT HIGH",      "LOW COOLANT LVL",
         "FAIL TO START", "FAIL TO STOP",   "SENSOR LOSS",
+        "ECU STOP LAMP", "ECU WARNING",    "ECU COMMS LOST",
     };
     return (id < ALARM_COUNT) ? names[id] : "?";
 }
@@ -132,6 +135,14 @@ void protection_tick(protection_state_t *st, const gcu_config_t *cfg,
     qualify(st, ALARM_BATT_HIGH, in->battery_v > cfg->batt_high_v,
             cfg->batt_delay_ms);
     qualify(st, ALARM_LOW_COOLANT_LEVEL, in->low_coolant_level, 5000);
+
+    /* J1939 engine ECU severity. The red stop lamp is the engine ECU
+     * telling us to shut down — treat it like our own shutdowns. Armed
+     * only while running: a latched red lamp from a previous fault must
+     * not block cranking after operator reset (the ECU re-evaluates). */
+    qualify(st, ALARM_ECU_RED_LAMP, engine_running && in->ecu_red_lamp, 500);
+    qualify(st, ALARM_ECU_WARNING, in->ecu_amber_lamp, 1000);
+    qualify(st, ALARM_ECU_COMMS_LOST, in->ecu_comms_lost, 1000);
 }
 
 void protection_reset(protection_state_t *st)

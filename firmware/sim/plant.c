@@ -23,6 +23,7 @@ static float towards(float x, float target, float rate)
 
 void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in)
 {
+    p->tick++;
     /* --- engine speed ------------------------------------------------ */
     float target;
     float rate;
@@ -93,4 +94,66 @@ void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in)
     in->battery_v = p->battery_v;
     in->dplus_v =
         (p->fired && !p->charge_alt_broken) ? p->battery_v : 1.0f;
+}
+
+/* ---------------------------------------------------------- fake engine ECU */
+
+#define ENGINE_SA 0x00U
+#define PDU2_ID(pgn) ((0x18000000U | ((pgn) << 8) | ENGINE_SA))
+
+static void frame(j1939_frame_t *f, uint32_t pgn)
+{
+    memset(f->data, 0xFF, 8); /* J1939 default: not available */
+    f->id = PDU2_ID(pgn);
+    f->dlc = 8;
+}
+
+int plant_j1939_emit(const plant_t *p, const gcu_outputs_t *out,
+                     j1939_frame_t *frames, int max)
+{
+    /* Battery-powered ECU: awake on run-enable and through the whole
+     * spin-down, so the supervisor sees rpm actually reach 0. */
+    bool awake = out->run_enable || p->rpm > 0.5f;
+    if (!awake || p->j1939_silent || max < 1) {
+        return 0;
+    }
+
+    int n = 0;
+    if (p->tick % 2 == 0 && n < max) {          /* EEC1, 20 ms */
+        frame(&frames[n], 61444U);
+        uint16_t raw = (uint16_t)(p->rpm / 0.125f);
+        frames[n].data[3] = (uint8_t)(raw & 0xFFU);
+        frames[n].data[4] = (uint8_t)(raw >> 8);
+        n++;
+    }
+    if (p->tick % 50 == 0 && n < max) {         /* EFL/P1, 500 ms */
+        float oil = p->oil_pump_broken ? 0.0f : (p->rpm / 1500.0f) * 4.0f;
+        frame(&frames[n], 65263U);
+        frames[n].data[3] = (uint8_t)(oil / 0.04f);
+        n++;
+    }
+    if (p->tick % 100 == 0 && n < max) {        /* ET1, 1 s */
+        frame(&frames[n], 65262U);
+        frames[n].data[0] = (uint8_t)(p->coolant_c + 40.0f);
+        n++;
+    }
+    if (p->tick % 100 == 50 && n < max) {       /* DM1, 1 s */
+        frame(&frames[n], 65226U);
+        uint8_t lamps = 0;
+        if (p->dm1_red_lamp) lamps |= 0x1U << 4;
+        if (p->dm1_amber_lamp) lamps |= 0x1U << 2;
+        frames[n].data[0] = lamps;
+        frames[n].data[1] = 0xFF;
+        if (p->dm1_red_lamp) {
+            /* SPN 100 (oil pressure), FMI 1 — a plausible stop cause */
+            frames[n].data[2] = 100;
+            frames[n].data[3] = 0;
+            frames[n].data[4] = 1;
+            frames[n].data[5] = 1;
+        } else {
+            memset(&frames[n].data[2], 0, 4);
+        }
+        n++;
+    }
+    return n;
 }

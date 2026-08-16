@@ -5,7 +5,7 @@ CC ?= gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -O2 -g
 
 CORE := core/gcu_config.c core/engine_fsm.c core/protection.c \
-        core/amf_fsm.c core/gcu_app.c
+        core/amf_fsm.c core/gcu_app.c core/j1939.c
 SIM := sim/plant.c
 
 build:

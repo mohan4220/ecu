@@ -46,6 +46,11 @@ typedef struct {
     bool key_start; /* momentary                               */
     bool key_stop;  /* momentary; also resets latched alarms   */
     bool mode_auto; /* AUTO selected (else MANUAL)             */
+
+    /* J1939 supervisor mode (all false in legacy analog mode) */
+    bool ecu_red_lamp;   /* engine ECU DM1 stop lamp — shutdown  */
+    bool ecu_amber_lamp; /* engine ECU DM1 warning lamp          */
+    bool ecu_comms_lost; /* engine PGNs silent while run enabled */
 } gcu_inputs_t;
 
 /* ----------------------------------------------------------------- outputs */
