@@ -122,14 +122,16 @@ en = u1.pin(3)
 r2 = R(s, "R2", "100k", en[0] - 15, en[1] - 6)
 r3 = R(s, "R3", "23.2k (UVLO 8V)", en[0] - 15, en[1] + 6)
 s.wire(r2.pin(2), r3.pin(1))
-s.wire(en, ((en[0] + r2.pin(2)[0]) / 2, en[1]))
+# single run EN -> divider midpoint (a stray stub here used to end ON C3's
+# column and shorted EN to +24V — reviewer finding M1)
 s.wire_h_then_v(en, ((r2.pin(2)[0] + r3.pin(1)[0]) / 2, (r2.pin(2)[1] + r3.pin(1)[1]) / 2))
 s.junction(((r2.pin(2)[0] + r3.pin(1)[0]) / 2, (r2.pin(2)[1] + r3.pin(1)[1]) / 2))
 rail(s, "+24V", r2.pin(1))
 gnd(s, r3.pin(2))
-# RON
+# RON — R4 on its own column; at ron-8 it shared C3's column and the
+# vertical run passed through C3's grounded pin (reviewer finding C1)
 ron = u1.pin(4)
-r4 = R(s, "R4", "100k (RON 300kHz)", ron[0] - 8, ron[1] + 8)
+r4 = R(s, "R4", "100k (RON 300kHz)", ron[0] - 4, ron[1] + 8)
 s.wire_h_then_v(ron, r4.pin(1))
 gnd(s, r4.pin(2))
 # GND + EP
@@ -200,7 +202,7 @@ f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A", (60, y), rot=90,
              ref_at=(57, y - 6.5), val_at=(57, y - 4))
 rail(s, "+24V", (f2.pin(1)[0] - 6, y))
 s.wire((f2.pin(1)[0] - 6, y), f2.pin(1))
-d80 = s.place("Device:D_TVS", "D80", "SMBJ33A", (f2.pin(2)[0] + 8, y + 10), rot=90)
+d80 = s.place("Device:D_TVS", "D80", "SMBJ33CA", (f2.pin(2)[0] + 8, y + 10), rot=90)
 s.wire(f2.pin(2), (d80.pin(2)[0], y))
 s.junction((d80.pin(2)[0], y))
 s.wire((d80.pin(2)[0], y), d80.pin(2))
@@ -403,9 +405,21 @@ s.junction(vrn)
 c91 = C(s, "C91", "10uF", vrn[0], vm + 9)
 s.wire(vrn, c91.pin(1))
 gnd(s, c91.pin(2))
-# DC feedback from after the isolation resistor
+# dual feedback (reviewer finding M5): R93 takes DC feedback from after the
+# 47R isolation resistor; C93 closes the loop at AC directly from the output
+# so the R92/C91 pole sits outside the fast loop.
 inv8 = u8.pin("6")
-s.wire(inv8, (inv8[0] - 3, inv8[1]), (inv8[0] - 3, vm - 10), (vrn[0], vm - 10), (vrn[0], vrn[1]))
+fcol = inv8[0] - 3
+s.wire(inv8, (fcol, inv8[1]), (fcol, vm - 12))
+r93 = R(s, "R93", "10k", (fcol + vrn[0]) / 2, vm - 10, rot=90)
+s.wire((fcol, vm - 10), r93.pin(1))
+s.junction((fcol, snap(vm - 10)))
+s.wire(r93.pin(2), (vrn[0], vm - 10), (vrn[0], vrn[1]))
+coutx = u8.pin("7")[0] + 1.27
+c93 = C(s, "C93", "100nF", (fcol + coutx) / 2, vm - 12, rot=90)
+s.wire((fcol, vm - 12), c93.pin(1))
+s.wire(c93.pin(2), (coutx, vm - 12), (coutx, vm))
+s.junction((snap(coutx), snap(vm)))
 s.wire(vrn, (vrn[0] + 8, vm))
 s.glabel((vrn[0] + 8, vm), "VREF_MID", shape="output")
 u8p = s.place("Amplifier_Operational:MCP6002-xSN", "U8", "MCP6002", (vx + 20, vy + 42), unit=3,
@@ -415,6 +429,15 @@ gnd(s, u8p.pin("4"))
 c92 = C(s, "C92", "100nF", vx + 32, vy + 40)
 rail(s, "+3V3", c92.pin(1))
 gnd(s, c92.pin(2))
+# U8 unit A tied off (reviewer finding M3: it was never placed -> floating
+# CMOS inputs on the same die as the VREF buffer)
+u8a = s.place("Amplifier_Operational:MCP6002-xSN", "U8", "MCP6002", (vx + 62, vy + 42), unit=1,
+              ref_at=(vx + 59, vy + 48), val_at=(vx + 65, vy + 48))
+s.wire(u8a.pin("2"), (u8a.pin("2")[0] - 3, u8a.pin("2")[1]),
+       (u8a.pin("2")[0] - 3, u8a.pin("2")[1] - 8),
+       (u8a.pin("1")[0] + 3, u8a.pin("1")[1] - 8),
+       (u8a.pin("1")[0] + 3, u8a.pin("1")[1]), u8a.pin("1"))
+gnd(s, u8a.pin("3"))
 
 # AC voltage channels
 j5 = conn(s, "J5", "Screw_Terminal_GEN", 4, 25, 60)
@@ -629,9 +652,12 @@ d30 = clamp99(s, "D30", n2, val="BAV99")
 u5 = s.place("Comparator:LM2903", "U5", "LM2903", (n2[0] + 22, my - 2.54), unit=1,
              ref_at=(n2[0] + 19, my + 4), val_at=(n2[0] + 25, my + 4))
 plus, minus, outp = u5.pin("3"), u5.pin("2"), u5.pin("1")
-s.wire(n2, (plus[0] - 3, my))
-s.wire((plus[0] - 3, my), (plus[0] - 3, plus[1]), plus)
-# 1.65V threshold on inverting input
+# + and - pins share an x column; the signal feed and the threshold feed
+# must use DIFFERENT routes or they merge (reviewer finding C2).
+# +input: signal row -> its own column -> up to the + pin.
+s.wire(n2, (plus[0] - 6, my))
+s.wire((plus[0] - 6, my), (plus[0] - 6, plus[1]), plus)
+# -input: straight DOWN from the pin to the threshold-divider row.
 r33 = R(s, "R33", "10k", minus[0] - 8, minus[1] + 10)
 r34 = R(s, "R34", "10k", minus[0] - 8, minus[1] + 22)
 rail(s, "+3V3", (r33.pin(1)[0], r33.pin(1)[1] - 2))
@@ -639,8 +665,7 @@ s.wire((r33.pin(1)[0], r33.pin(1)[1] - 2), r33.pin(1))
 s.wire(r33.pin(2), r34.pin(1))
 tm = ((r33.pin(2)[1] + r34.pin(1)[1]) / 2)
 gnd(s, r34.pin(2))
-s.wire(minus, (minus[0] - 3, minus[1]), (minus[0] - 3, tm) if False else (minus[0] - 3, minus[1]))
-s.wire_v_then_h((minus[0] - 3, minus[1]), (r33.pin(2)[0], tm))
+s.wire(minus, (minus[0], tm), (r33.pin(2)[0], tm))
 s.junction((r33.pin(2)[0], tm))
 # output pull-up + hysteresis
 o = (outp[0] + 6, outp[1])
@@ -728,10 +753,10 @@ for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
     # flyback horizontal between hot column and drain column, K toward hot
     dmy = snap(yc - 2.54)
     dfly_ = s.place("Device:D_Schottky", dfly, "SS34",
-                    ((coil_hot[0] + dpin[0]) / 2, dmy), rot=90,
+                    ((coil_hot[0] + dpin[0]) / 2, dmy), rot=0,
                     ref_at=((coil_hot[0] + dpin[0]) / 2 - 1.3, dmy + 3.2),
                     val_at=((coil_hot[0] + dpin[0]) / 2 - 1.3, dmy + 5.7))
-    kk, aa = dfly_.pin(1), dfly_.pin(2)   # rot 90: pin1 K left, pin2 A right
+    kk, aa = dfly_.pin(1), dfly_.pin(2)   # rot 0: pin1 K left, pin2 A right
     s.wire(kk, (coil_hot[0], dmy), (coil_hot[0], rowh))
     s.junction((coil_hot[0], snap(rowh)))
     s.wire(aa, (dpin[0], dmy), dpin)
@@ -847,11 +872,16 @@ s.wire(b_, (ax, b_[1]))
 s.junction((ax, a_[1]))
 s.junction((ax, b_[1]))
 # bias + termination
+# idle-state fail-safe bias: pull A up, pull B down (A-B > 0 = mark/idle).
+# Reviewer finding M2: this was reversed. The vertical runs deliberately
+# CROSS the other bus row mid-segment (no junction = no connection).
 r73 = R(s, "R73", "560R fail-safe", ax + 6, b_[1] - 12)
 rail(s, "+3V3", r73.pin(1))
-s.wire(r73.pin(2), (r73.pin(2)[0], b_[1]), (ax, b_[1]))
-r74 = R(s, "R74", "560R fail-safe", ax + 6, a_[1] + 12)
-s.wire((ax, a_[1]), (r74.pin(1)[0], a_[1]), r74.pin(1))
+s.wire(r73.pin(2), (r73.pin(2)[0], a_[1]))
+s.junction((r73.pin(2)[0], a_[1]))
+r74 = R(s, "R74", "560R fail-safe", ax + 12, a_[1] + 12)
+s.wire(r74.pin(1), (r74.pin(1)[0], b_[1]))
+s.junction((r74.pin(1)[0], b_[1]))
 gnd(s, r74.pin(2))
 # bus rows out to labels
 s.wire((ax, b_[1]), (ax + 26, b_[1]))
@@ -1036,15 +1066,15 @@ s.wire(jb3, (jb3[0], sy), (sx + 30, sy))
 vb = mcu.pin(name_pins["VBAT"][0]); used.add(name_pins["VBAT"][0])
 s.wire(vb, (vb[0], vb[1] - 4))
 s.label((vb[0], vb[1] - 4), "VBAT_RTC", rot=90)
-d70 = s.place("Device:D_Schottky", "D70", "BAT54", (sx + 4, sy + 40), rot=90,
+# rot 180 puts A left / K right: charge current flows +3V3 -> D70 -> R81
+# -> supercap (rot 90 made it vertical and reversed — reviewer finding C3)
+d70 = s.place("Device:D_Schottky", "D70", "BAT54", (sx + 4, sy + 40), rot=180,
               ref_at=(sx, sy + 36), val_at=(sx + 8, sy + 36))
-dk = d70.pin(1); da = d70.pin(2)
-left70 = da if da[0] < dk[0] else dk
-right70 = dk if da[0] < dk[0] else da
-rail(s, "+3V3", (left70[0] - 4, sy + 40))
-s.wire((left70[0] - 4, sy + 40), left70)
-r81 = R(s, "R81", "330R", right70[0] + 8, sy + 40, rot=90)
-s.wire(right70, r81.pin(1))
+a70, k70 = d70.pin(2), d70.pin(1)   # rot 180: pin2 A left, pin1 K right
+rail(s, "+3V3", (a70[0] - 4, sy + 40))
+s.wire((a70[0] - 4, sy + 40), a70)
+r81 = R(s, "R81", "330R", k70[0] + 8, sy + 40, rot=90)
+s.wire(k70, r81.pin(1))
 vbn = (r81.pin(2)[0] + 5, sy + 40)
 s.wire(r81.pin(2), vbn)
 s.junction(vbn)
@@ -1132,7 +1162,8 @@ gnd(s, cbulk.pin(2))
 
 # LED heartbeat
 r99 = R(s, "R99", "1k", sx + 5, sy + 140)
-led = s.place("Device:LED", "DS1", "green", (sx + 5, sy + 152), rot=270,
+# rot 90: A top (to R99), K bottom (to GND) — rot 270 was reversed (M4)
+led = s.place("Device:LED", "DS1", "green", (sx + 5, sy + 152), rot=90,
               ref_at=(sx + 9, sy + 150), val_at=(sx + 9, sy + 152.5))
 s.wire((sx + 5, sy + 132), r99.pin(1))
 s.glabel((sx + 5, sy + 132), "LED_HB", rot=90, shape="input")
