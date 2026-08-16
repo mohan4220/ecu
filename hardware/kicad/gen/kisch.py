@@ -384,18 +384,22 @@ class Project:
             self._root_sheet_symbol(s, fn, (cx, cy), (w, h), page=i + 2)
             s.save(f"{outdir}/{fn}")
         self.root.save(f"{outdir}/{self.name}.kicad_sch")
-        pro = {
-            "board": {"design_settings": {}},
-            "libraries": {"pinned_symbol_libs": [], "pinned_footprint_libs": []},
-            "meta": {"filename": f"{self.name}.kicad_pro", "version": 1},
-            "schematic": {
-                "annotate_start_num": 0,
-                "drawing": {"default_font": "KiCad Font"},
-                "legacy_lib_dir": "", "legacy_lib_list": [],
-            },
-            "sheets": [[self.root.uuid, ""]] + [
-                [self._sheet_uuid[id(s)], s.title] for s, _ in self.sheets],
-            "text_variables": {},
-        }
-        with open(f"{outdir}/{self.name}.kicad_pro", "w") as f:
-            json.dump(pro, f, indent=2)
+        # never clobber an existing .kicad_pro — KiCad rewrites it with the
+        # user's project settings (ERC config etc.) on first open
+        pro_path = f"{outdir}/{self.name}.kicad_pro"
+        if not os.path.exists(pro_path):
+            pro = {
+                "board": {"design_settings": {}},
+                "libraries": {"pinned_symbol_libs": [], "pinned_footprint_libs": []},
+                "meta": {"filename": f"{self.name}.kicad_pro", "version": 1},
+                "schematic": {
+                    "annotate_start_num": 0,
+                    "drawing": {"default_font": "KiCad Font"},
+                    "legacy_lib_dir": "", "legacy_lib_list": [],
+                },
+                "sheets": [[self.root.uuid, ""]] + [
+                    [self._sheet_uuid[id(s)], s.title] for s, _ in self.sheets],
+                "text_variables": {},
+            }
+            with open(pro_path, "w") as f:
+                json.dump(pro, f, indent=2)
