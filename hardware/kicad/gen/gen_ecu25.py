@@ -70,11 +70,13 @@ s.wire(f1.pin(2), (d1.pin(2)[0], y))          # to TVS column
 s.junction((d1.pin(2)[0], y))
 s.wire((d1.pin(2)[0], y), d1.pin(2))
 gnd(s, d1.pin(1))
-# reverse-polarity P-FET: drain to battery side, source to load
-q1 = s.place("Device:Q_PMOS_GSD", "Q1", "SQJ457EP", (70, y - 2.54), rot=90,
+# reverse-polarity P-FET: drain to battery side, source to load.
+# GDS variant matches DPAK pad numbering (1=G, 2=D tab, 3=S) — the GSD
+# variant on a DPAK/PowerPAK footprint silently swaps D and S in the netlist.
+q1 = s.place("Device:Q_PMOS_GDS", "Q1", "SQD50P06-15L", (70, y - 2.54), rot=90,
              ref_at=(66, y - 9), val_at=(66, y - 6.5))
 # rot 90: D(2.54,5.08)->(-5.08,y-2.54-2.54)... use computed pins
-dpin, spin, gpin = q1.pin(3), q1.pin(2), q1.pin(1)
+dpin, spin, gpin = q1.pin(2), q1.pin(3), q1.pin(1)
 s.wire((d1.pin(2)[0], y), (dpin[0], y), dpin)
 s.wire(spin, (spin[0] + 6, spin[1] if abs(spin[1]-y) < 3 else y))
 # gate network
@@ -1235,6 +1237,117 @@ for num, (net, shape) in RIB.items():
     else:
         s.glabel((xy[0] + dx, xy[1]), net, rot=(180 if left_side else 0), shape=shape)
 s.text((90, 130), "Display board itself is a separate KiCad project (phase 2b).", size=1.5)
+
+# =================================================================
+# Footprint assignment (Phase 3)
+# =================================================================
+# By-refdes exceptions first, then value rules, then per-symbol defaults.
+# Every name verified to exist in the KiCad 7 standard libraries.
+
+_MKDS15 = "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-{n}-5.08_1x{n:02d}_P5.08mm_Horizontal"
+_MKDS3 = "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-{n}-5.08_1x{n:02d}_P5.08mm_Horizontal"
+_SOT23 = "Package_TO_SOT_SMD:SOT-23"
+_SOIC8 = "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+
+FP_BY_REF = {
+    # power chain
+    "F1":  "Fuse:Fuseholder_Blade_Mini_Keystone_3568",
+    "F2":  "Fuse:Fuse_1812_4532Metric",                    # PTC 1.1A
+    "D1":  "Diode_SMD:D_SMC",                              # SMCJ33CA
+    "D2":  "Diode_SMD:D_SOD-123",                          # BZT52C15
+    "Q1":  "Package_TO_SOT_SMD:TO-252-2",                  # SQD50P06 DPAK: 1=G, 2=D(tab), 3=S
+    "C1":  "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",       # 100uF 50V
+    "U1":  "Package_SO:SOIC-8-1EP_3.9x4.9mm_P1.27mm_EP2.514x3.2mm_ThermalVias",  # LM5164 DDA (HSOP-8)
+    "L2":  "Inductor_SMD:L_12x12mm_H8mm",                  # 33uH 2A shielded (e.g. WE-PD 1245)
+    "C5":  "Capacitor_SMD:C_1210_3225Metric",              # 22uF 25V
+    "C6":  "Capacitor_SMD:C_1210_3225Metric",
+    "C3":  "Capacitor_SMD:C_1210_3225Metric",              # 2.2uF 100V
+    "U2":  "Package_TO_SOT_SMD:SOT-23-5",                  # TLV75533PDBV
+    "C8":  "Capacitor_SMD:C_0805_2012Metric",              # 10uF
+    # MCU core
+    "U12": "Package_QFP:LQFP-100_14x14mm_P0.5mm",
+    "Y1":  "Crystal:Crystal_SMD_HC49-SD",
+    "Y2":  "Crystal:Crystal_SMD_3215-2Pin_3.2x1.5mm",
+    "C76": "Capacitor_THT:CP_Radial_D10.0mm_P5.00mm",      # 0.22F 5.5V EDLC coin
+    "C77": "Capacitor_SMD:CP_Elec_4x5.4",                  # 4.7uF SMD electrolytic
+    "D70": "Diode_SMD:D_SOD-123",                          # BAT54 variant (SOD-123, e.g. BAT54GWX)
+    "C30": "Capacitor_SMD:C_0805_2012Metric",              # 100nF 100V (MPU coupling)
+    "DS1": "LED_SMD:LED_0805_2012Metric",
+    # analog / misc power parts
+    "R88": "Resistor_THT:R_Axial_Power_L25.0mm_W9.0mm_P30.48mm",  # 220R 5W cement
+    "C91": "Capacitor_SMD:C_0805_2012Metric",              # 10uF VREF_MID
+    # connectors — field power/AC/relay/CT on MKDS-3 (heavier, 400V-class),
+    # signal-level on MKDS-1,5
+    "J1":  _MKDS3.format(n=2),
+    "J2":  _MKDS15.format(n=10),
+    "J3":  _MKDS15.format(n=4),
+    "J4":  _MKDS15.format(n=2),
+    "J5":  _MKDS3.format(n=4),
+    "J6":  _MKDS3.format(n=4),
+    "J7":  _MKDS3.format(n=6),
+    "J8":  _MKDS3.format(n=8),
+    "J9":  _MKDS15.format(n=3),
+    "J10": _MKDS15.format(n=3),
+    "J11": "Connector:Tag-Connect_TC2030-IDC-NL_2x03_P1.27mm_Vertical",
+    "J12": "Connector_IDC:IDC-Header_2x10-1MP_P2.54mm_Latch_Vertical",
+    "J13": _MKDS15.format(n=2),
+    "J14": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+}
+
+FP_BY_LIBID = {
+    "Device:R": "Resistor_SMD:R_0603_1608Metric",
+    "Device:C": "Capacitor_SMD:C_0603_1608Metric",
+    "Device:D_Schottky": "Diode_SMD:D_SMA",                # SS34 flybacks
+    "Device:D_TVS": "Diode_SMD:D_SMB",                     # SMBJ… (D1 overridden)
+    "Device:D_Zener": "Diode_SMD:D_SOD-123",
+    "Device:FerriteBead": "Inductor_SMD:L_0603_1608Metric",
+    "Diode:BAT54S": _SOT23,
+    "Diode:BAV99": _SOT23,
+    "Transistor_BJT:BC857": _SOT23,
+    "Transistor_FET:2N7002K": _SOT23,
+    "Amplifier_Operational:LM358": _SOIC8,
+    "Amplifier_Operational:MCP6002-xSN": _SOIC8,
+    "Comparator:LM2903": _SOIC8,
+    "Interface_CAN_LIN:TJA1051T-3": _SOIC8,
+    "Interface_UART:MAX3485": _SOIC8,                      # THVD1450, SOIC-8
+    "Memory_EEPROM:M95256-WMN6P": _SOIC8,                  # M95M02-DR MN
+    "Relay:G5LE-1": "Relay_THT:Relay_SPDT_Omron-G5LE-1",
+    "Jumper:SolderJumper_2_Open": "Jumper:SolderJumper-2_P1.3mm_Open_RoundedPad1.0x1.5mm",
+    "Connector:Conn_ARM_SWD_TagConnect_TC2030":
+        "Connector:Tag-Connect_TC2030-IDC-NL_2x03_P1.27mm_Vertical",
+    "Connector_Generic:Conn_02x10_Odd_Even":
+        "Connector_IDC:IDC-Header_2x10-1MP_P2.54mm_Latch_Vertical",
+}
+
+
+def footprint_for(ref, value, lib_id):
+    if ref in FP_BY_REF:
+        return FP_BY_REF[ref]
+    if lib_id == "Device:R":
+        if "3W" in value:
+            return "Resistor_SMD:R_2512_6332Metric"        # 0.05R shunt, 3W-class 2512
+        if "0.5W" in value:
+            return "Resistor_SMD:R_1210_3225Metric"        # DIN divider top, surge margin
+        if "1206" in value:
+            return "Resistor_SMD:R_1206_3216Metric"        # AC-sense chain, 200V/element
+    if lib_id == "Device:C" and "100V" in value:
+        return "Capacitor_SMD:C_0805_2012Metric"
+    if lib_id == "Device:FerriteBead" and "3A" in value:
+        return "Inductor_SMD:L_0805_2012Metric"            # FB1, series element in +24V feed
+    return FP_BY_LIBID.get(lib_id)
+
+
+for _sh in [p.root] + [s0 for s0, _ in p.sheets]:
+    for _sym in _sh.sch.schematicSymbols:
+        _props = {pr.key: pr for pr in _sym.properties}
+        _ref = _props["Reference"].value
+        if _ref.startswith("#") or _sym.libId.startswith("power:"):
+            continue
+        _val = _props["Value"].value
+        _fp = footprint_for(_ref, _val, _sym.libId)
+        if not _fp:
+            raise SystemExit(f"no footprint rule for {_ref} ({_sym.libId} / {_val})")
+        _props["Footprint"].value = _fp
 
 # =================================================================
 p.save(OUT)
