@@ -105,7 +105,10 @@ FIXED = {
     "K5":  (148, 131, 0), "K4": (169, 131, 0), "K6": (190, 131, 0),
 }
 
-# J5/J6/J15: symbol pin n -> footprint pad 2n-1 (odd poles of the 8-pole block)
+# J5/J6/J15: symbol pin n -> footprint pad 2n-1 (odd poles of the 8-pole block).
+# WARNING: this remap exists ONLY here. Running "Update PCB from Schematic" in
+# pcbnew would silently move these nets back to pads 1-4 (2.48mm live pitch,
+# creepage violation). This board is regenerate-only — see README.
 PAD_REMAP = {r: {"1": "1", "2": "3", "3": "5", "4": "7"} for r in ("J5", "J6", "J15")}
 
 # shelf-pack zones per schematic sheet: (x0, y0, x1, y1)
@@ -126,7 +129,7 @@ ZONES = {
 KEEPOUTS = [
     (103, 20, 206, 37),     # J5/J6 bodies
     (103, 37, 192, 58),     # 330k chain strip
-    (155, 96, 208, 166),    # volt-free relay contacts + corridor + J15
+    (155, 96, 209, 166),    # volt-free relay contacts + corridor + J15
 ]
 
 
@@ -205,7 +208,7 @@ def main():
         zx0, zy0, zx1, zy1 = ZONES[sheet]
         # wider spacing in the HV strip so pad-to-pad gaps clear the 1mm
         # chain clearance rule; refs sorted so chain resistors stay grouped
-        margin = 1.2 if sheet == "AC-HV" else 0.6
+        margin = 1.3 if sheet == "AC-HV" else 0.6   # 1.3 -> chain pad gaps clear 3.0mm
         if sheet == "AC-HV":
             refs.sort()
         else:
@@ -262,6 +265,8 @@ def main():
         z.SetDoNotAllowCopperPour(True)
         z.SetDoNotAllowTracks(False)
         z.SetDoNotAllowVias(False)
+        z.SetDoNotAllowPads(False)      # default True floods DRC with errors
+        z.SetDoNotAllowFootprints(False)
         ls = pcbnew.LSET()
         ls.AddLayer(pcbnew.F_Cu)
         ls.AddLayer(pcbnew.B_Cu)
