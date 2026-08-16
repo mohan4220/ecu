@@ -52,6 +52,7 @@ multiply by channel count for the full board.
 
 ### 05 — Sender input
 - Current source (LM358 + BC857 + R_set, drawn as I1): 0.5 V ref across 62 Ω → 8.06 mA (oil, fuel); 249 Ω → 2.0 mA (temp, avoids saturation on cold NTC).
+- Implementation (KiCad): high-side source from +5 V; the 0.5 V drop is set by a 4.5 V reference (10k/90.9k + 100 nF from +5 V) on the op-amp +input, feedback from the BC857 emitter. LM358 runs from +24 V so its input common-mode range (V+ − 1.5 V) clears the 4.5 V reference easily.
 - Oil 184 Ω × 8 mA = 1.48 V full scale; 12-bit ADC → ≈0.1 Ω resolution.
 - R23/C20 filter; R24 + BAV199 clamp (survives short to +24 V).
 
@@ -75,6 +76,8 @@ multiply by channel count for the full board.
 ### 09 — Relay driver
 - 2N7002K (60 V): coil 24 V / 360 Ω → 67 mA. 60 V rating clears the 53 V TVS clamp with margin — a 30 V FET (AO3400) would not. R61 keeps the FET off during MCU reset.
 - SS34 flyback clamps coil kickback to ~0.4 V above +24V_SW.
+- Contacts (KiCad, J8): FUEL/START/HORN/PREHEAT switch +24V_SW to their terminals; GEN and MAINS contactor channels are **volt-free pairs** (COM+NO both to terminals) — contactor coils run on their own AC source, and the panel hardware interlock stays load-bearing.
+- K1 run-enable energizes from PREHEAT onward (not just crank): gives a J1939 engine ECU its boot time before the starter engages; in legacy mode it merely energizes the fuel solenoid early.
 
 ### 10/11 — Comms
 - CAN split termination 2 × 60 Ω + 4.7 nF (fit JP1 only at bus ends) — better common-mode filtering than single 120 Ω.
@@ -86,12 +89,13 @@ multiply by channel count for the full board.
 - VBAT: BAT54 + 330 Ω charges the 0.22 F supercap gently — without the resistor the 3.3 V LDO sits in current limit for seconds at every cold start. RTC draw ~1 µA → ≈60 h backup.
 - VDDA fed through ferrite + 1 µF/10 nF — keeps digital switching noise off the ADC reference.
 - BOOT0 10 k pulldown = boot from flash; JP3 to 3V3 invokes ROM UART bootloader (recovery without debugger).
+- SWD (KiCad): TC2030 tag-connect footprint, J11 — 6 pads, no fitted connector cost; NRST also on it.
 
 ### 13 — VREF_MID buffer
-- 10k/10k from 3.3 V → 1.65 V; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF with DC feedback taken after the resistor (dual-feedback RC finalized in KiCad) → low output impedance at 50 Hz, no bias crosstalk between channels.
+- 10k/10k from 3.3 V → 1.65 V; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF, dual feedback (final values, in KiCad): R93 10k takes DC feedback from after the 47 Ω, C93 100 nF closes the loop at AC directly from the op-amp output — the R92·C91 pole sits outside the fast loop, so low output impedance at 50 Hz without oscillation and no bias crosstalk between channels.
 
 ### 14 — +24V_SW
-- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. Local SMBJ33A clamps coil-switching transients.
+- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. Local SMBJ33**CA** (bidirectional, matching the two-anode TVS symbol) clamps coil-switching transients — the unidirectional SMBJ33A would risk a footprint-time cathode-to-GND forward short (schematic review catch).
 
 ### 15 — Battery sense
 - 100k/6.8k = ÷15.7 → 32 V reads 2.04 V (ADC max 3.3 V ⇒ headroom to 51 V). 12-bit LSB ≈ 12.6 mV of battery.
@@ -112,6 +116,10 @@ multiply by channel count for the full board.
 ## Review status
 
 Independently design-reviewed 2026-08-11 (all calculations re-derived, all diagrams inspected). Fixes applied: TVS polarity (14), VCAP caps (12), GND-side switch pull-up (04), comparator supply (06), V/I filter phase matching (07/08), CT burden/headroom/TVS (08), 60 V relay FET (09), supercap inrush resistor (12), 500 mA LDO (03), VREF buffer feedback (13). Notes: BAV199 symbols show one diode of the dual pair (second half to GND implied); D1 SMCJ33CA is bidirectional despite the unidirectional symbol; refdes get final rationalization in KiCad.
+
+KiCad capture independently SME-reviewed 2026-08-16 (netlist re-derived against this sheet, probes run): 3 criticals + 6 majors found and fixed — buck RON short, comparator input merge, supercap diode reversed, UVLO divider defeated, RS485 bias polarity, floating spare op-amp, LED reversed, VREF dual feedback captured (R93/C93), D80 → SMBJ33CA. Re-verified against a fresh netlist: ship. The schematic (`hardware/kicad/ecu25-main/`) carries the final refdes; this sheet keeps the design math.
+
+J1939 firmware module reviewed the same way (probe programs, J1939-71/-73/-81 conformance) — see firmware commit history for the fix list.
 
 ## Regenerating
 

@@ -194,7 +194,7 @@ def sender_input():
     d.config(fontsize=10, unit=2.0)
     d += elm.Vdd().at((0, 5.4)).label("+5V")
     d += elm.SourceI().at((0, 5.4)).down(2.4).label(
-        "I1  8mA (oil/fuel)\n249Ω→2mA (temp)\n[LM358+BC857+62Ω\nsee KiCad sheet]", loc="bottom"
+        "I1  8mA (oil/fuel)\n249Ω→2mA (temp)\n[LM358@24V + BC857 + R_set,\n4.5V ref = 10k/90.9k off +5V\n— see KiCad sheet]", loc="bottom"
     )
     d += elm.Line().down(0.6)
     d += (n := elm.Dot())
@@ -351,7 +351,7 @@ def relay_driver():
     # contacts, drawn separately
     d += elm.Line().at((10.5, 1.2)).right(0.001).label("COM", loc="left")
     d += elm.Switch().right().label("K1 contacts 16A", loc="top")
-    d += elm.Line().right(0.5).label("NO → fuel solenoid\nterminal", loc="right")
+    d += elm.Line().right(0.5).label("NO → fuel solenoid\nterminal\n(K3/K4 GEN+MAINS:\nvolt-free COM+NO pairs)", loc="right")
     save(d, "09-relay-driver")
 
 
@@ -580,7 +580,7 @@ def mcu_core():
     d += (nr := elm.Dot())
     d += elm.Capacitor().at(nr.start).down(1.5).label("C71\n100nF", loc="bottom")
     d += elm.Ground()
-    d += elm.Line().at(nr.start).left(2.2).label("TP1 / SWD pin 10", loc="left")
+    d += elm.Line().at(nr.start).left(2.2).label("TP1 / TC2030 nRST", loc="left")
     # BOOT0: pulldown + jumper
     d += elm.Line().at(ic.BOOT0).left(1.2)
     d += (bt := elm.Dot())
@@ -608,8 +608,8 @@ def mcu_core():
     d += elm.Capacitor().at(x4.start).right(2.2).label("C75 6.8pF", loc="top")
     d += elm.Ground()
     # SWD
-    d += elm.Line().at(ic.PA13).right(1.6).label("SWDIO → J2 SWD pin 2", loc="right")
-    d += elm.Line().at(ic.PA14).right(1.6).label("SWCLK → J2 SWD pin 4", loc="right")
+    d += elm.Line().at(ic.PA13).right(1.6).label("SWDIO → J11 TC2030", loc="right")
+    d += elm.Line().at(ic.PA14).right(1.6).label("SWCLK → J11 TC2030", loc="right")
     save(d, "12-mcu-core")
 
 
@@ -631,7 +631,7 @@ def vref_buffer():
     d += (o := elm.Dot())
     d += elm.Resistor().at(o.start).right().label("R92\n47Ω")
     d += (vr := elm.Dot())
-    d += elm.Capacitor().down(1.8).label("C91 10µF\n(dual-feedback RC\nin KiCad)", loc="bottom")
+    d += elm.Capacitor().down(1.8).label("C91 10µF\ndual FB: R93 10k DC\n+ C93 100n AC (KiCad)", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(op.in1).up(2.2)
     d += elm.Line().tox(vr.start)
@@ -649,7 +649,7 @@ def sw24():
     d += elm.Line().right(0.001).label("+24V_PROT", loc="left")
     d += elm.Fuse().right().label("F2 PTC 1.1A\n(resettable)", loc="top")
     d += (n := elm.Dot())
-    d += elm.Zener().down().reverse().label("D80\nSMBJ33A", loc="bottom")
+    d += elm.Zener().down().reverse().label("D80\nSMBJ33CA\n(bidir)", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n.start).right(1.2)
     d += elm.Arrow().right(0.8).label("+24V_SW\nrelay coils K1–K6\n+ D+ excitation", loc="right")

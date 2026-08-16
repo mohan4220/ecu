@@ -237,6 +237,8 @@
 
 **Reading the result:** without the diode the drain spikes to hundreds of volts at every turn-off (in real life: dead FET within cycles). With it: flat clamp at ≈24.4 V. This before/after is the whole lesson of flyback in one plot. Check FET V_DS never exceeds 60 % of rating in the *with* case.
 
+**Contact wiring (KiCad, J8):** FUEL/START/HORN/PREHEAT contacts switch +24V_SW out to their terminals; the GEN (K3) and MAINS (K4) contactor channels are **volt-free pairs** — COM and NO both go to terminals, because contactor coils run on their own AC source (gen side / mains side respectively). K1 run-enable energizes from PREHEAT onward, not just at crank: a J1939 engine ECU gets its boot time before the starter engages, and in legacy mode the fuel solenoid is simply energized a few seconds early.
+
 **Failure modes:** relay contacts (not coil) wear — the fuel/starter relays switch inductive DC, hardest duty; contact rating and external suppression matter more than this driver. Firmware bug energizing K3+K4 together is caught by the panel's hardware interlock — never rely on this circuit alone.
 
 ---
@@ -298,8 +300,8 @@
 - **VDDA/VREF+:** analog supply fed through FB2 (ferrite) + 1 µF/10 nF — the ADC's reference is only as clean as this node.
 - **Crystals:** 8 MHz HSE (12 pF loads: C = 2(C_L − C_stray) with C_L = 10 pF, stray ≈ 4 pF) — ±30 ppm timebase for CAN bit timing and metering; 32.768 kHz LSE (6.8 pF) for the RTC.
 - **VBAT:** BAT54 + **330 Ω** charge the 0.22 F supercap — the resistor stops the LDO current-limiting into a discharged supercap at every cold boot (reviewer catch); RTC + backup registers survive ≈ 60 h unpowered.
-- **NRST:** 100 nF + test point + SWD pin 10; **BOOT0:** 10k down (boot from flash), JP3 to 3V3 forces the ROM UART bootloader — firmware recovery with no debugger.
-- **SWD:** PA13/PA14 to the 10-pin Cortex header — flash + live debug.
+- **NRST:** 100 nF + test point + the SWD connector's reset pin; **BOOT0:** 10k down (boot from flash), JP3 to 3V3 forces the ROM UART bootloader — firmware recovery with no debugger.
+- **SWD:** PA13/PA14 + NRST on a TC2030 tag-connect footprint (J11) — 6 pads, zero connector cost, flash + live debug.
 
 **Ideal response:** boots every time, every temperature, every supply ramp; clocks exact.
 
@@ -321,7 +323,7 @@
 
 **Why needed:** AC signals swing negative; the ADC can't. Everything is lifted to half-rail. Nine channels inject their return currents into this node — a plain resistor divider would wobble with the signals and couple channels into each other.
 
-**How it works:** R90/R91 (10k/10k, 1 %) halve the 3.3 V rail; C90 quiets the divider; U8B buffers it (the op-amp's low output impedance absorbs channel currents). R92 (47 Ω) isolates the op-amp from the bulk capacitance C91 (10 µF) so it stays stable, and the DC feedback is taken **after** R92, so the op-amp actively regulates the far side of the isolation resistor (final dual-feedback RC detail lands in KiCad; reviewer catch — with feedback before R92, nine channels' worth of 50 Hz current through 47 Ω would modulate the reference).
+**How it works:** R90/R91 (10k/10k, 1 %) halve the 3.3 V rail; C90 quiets the divider; U8B buffers it (the op-amp's low output impedance absorbs channel currents). R92 (47 Ω) isolates the op-amp from the bulk capacitance C91 (10 µF) so it stays stable, and the feedback is dual: R93 (10k) takes the **DC** feedback from after R92, so the op-amp actively regulates the far side of the isolation resistor, while C93 (100 nF) closes the loop at **AC** directly from the op-amp output so the R92·C91 pole stays outside the fast loop (reviewer catches, both — with feedback before R92, nine channels' worth of 50 Hz current through 47 Ω would modulate the reference; with only the DC path, the buffer oscillates).
 
 **Ideal response:** 1.650 V rock-solid at DC and at 50 Hz regardless of what all nine channels do.
 
@@ -347,7 +349,7 @@
 
 **Why needed:** coils are the board's biggest, dirtiest load. A stuck relay or shorted coil must not drag down the rail that feeds the MCU's buck converter — fault isolation between "muscle" supply and "brain" supply.
 
-**How it works:** F2, a PTC resettable fuse (1.1 A hold), passes the normal ≈0.4 A of six coils but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33A, cathode to rail) clamps the switching transients that six coils generate locally.
+**How it works:** F2, a PTC resettable fuse (1.1 A hold), passes the normal ≈0.4 A of six coils but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
 
 **Ideal response:** transparent at ≤ 0.4 A forever; instant disconnect on any fault; instant recovery.
 

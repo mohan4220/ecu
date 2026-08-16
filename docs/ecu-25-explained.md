@@ -216,7 +216,7 @@ The **STM32F407VGT6** is an ST Microelectronics ARM **Cortex-M4** MCU: 168 MHz, 
 - **32.768 kHz LSE crystal + supercapacitor.** Runs the **RTC (real-time clock)** so fault-log entries carry real timestamps. 32 768 = 2¹⁵, so a simple binary counter divides it to exactly 1 Hz — the universal watch-crystal frequency. The supercapacitor keeps only the tiny V_BAT domain (RTC + backup registers) alive for days when the board is unpowered.
 - **Decoupling capacitors.** One 100 nF ceramic at *every* VDD pin, closest possible. Refresher on why: when the CPU switches, it demands current in sub-nanosecond bursts; the supply wiring has inductance and cannot deliver instantaneously. The local capacitor is a tiny charge reservoir next to the pin. Plus one bulk 4.7–10 µF per rail region.
 - **NRST + BOOT0.** NRST (reset) gets an RC and a test point. BOOT0 strapped low = boot from flash; a jumper to high invokes the built-in ROM bootloader (firmware recovery over UART without a debugger).
-- **SWD header.** **Serial Wire Debug**, the 2-wire ARM debug interface (SWDIO + SWCLK), on a standard 10-pin Cortex connector. This is how we flash and live-debug with an ST-Link.
+- **SWD header.** **Serial Wire Debug**, the 2-wire ARM debug interface (SWDIO + SWCLK), on a TC2030 tag-connect footprint (6 pads on the board, spring-pin cable, no fitted connector). This is how we flash and live-debug with an ST-Link.
 - **IWDG — independent watchdog.** A hardware down-counter on its own internal oscillator. Firmware must "kick" it periodically; if firmware hangs, the counter expires and hard-resets the chip. On a machine that controls a diesel engine, a hung controller must never stay hung. (See §10 for how we kick it honestly.)
 
 ### 4.2 EEPROM — M95M02-DR
@@ -527,7 +527,7 @@ STOPPED → PREHEAT → CRANK → CRANK_REST → (retry ≤3) → SHUTDOWN(fail-
              RUNNING_WARMUP → RUNNING → COOLDOWN → STOPPING → STOPPED
 ```
 
-- **PREHEAT:** K6 on for the configured glow time (cold diesels need it).
+- **PREHEAT:** K6 on for the configured glow time (cold diesels need it). K1 (run-enable) also comes on here — a J1939 engine ECU uses these seconds to boot, so live RPM is already on the bus when cranking starts; in legacy mode it just energizes the fuel solenoid early.
 - **CRANK:** K2 (starter) + K1 (fuel) on, for max ~10 s. **Crank disconnect** — the moment the engine fires (RPM crosses ~500, or oil pressure switch opens), K2 releases instantly. This single feature is why RPM sensing must be reliable.
 - **CRANK_REST:** starter motors overheat; between attempts the FSM waits (~10 s). After 3 failed attempts: **fail-to-start shutdown** (a genset that cranks its battery flat is worse than one that alarms).
 - **RUNNING_WARMUP:** engine runs off-load briefly; some protections (like under-voltage) are held off until the set stabilizes.
