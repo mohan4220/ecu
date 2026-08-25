@@ -13,7 +13,7 @@ design authority; this project is its capture.
 |-------|----------|
 | Power | Input protection (F1, SMCJ33CA, reverse-polarity P-FET), LM5164 buck 24→5 V, TLV75533 LDO 5→3.3 V, PTC-protected +24V_SW rail |
 | Analog inputs | 3× current-source sender inputs (LM358 + BC857, 8 mA / 2 mA), battery sense ÷15.7, D+ excite + sense |
-| AC sensing | 6× ÷237 dividers biased at VREF_MID, 3× CT burden + MCP6002 amps, 1.65 V buffered midpoint |
+| AC sensing | 6× ÷235.9 dividers biased at VREF_MID, 3× CT burden + MCP6002 amps, 1.65 V buffered midpoint |
 | Digital inputs + MPU | 8× 24 V inputs (divider + BAT54S clamp, per-channel GND-side-switch jumper), MPU → LM2903 comparator with hysteresis |
 | Relay drivers | 6× G5LE-1 + 2N7002K + SS34; GEN/MAINS contacts volt-free |
 | Comms | TJA1051T/3 CAN (split termination, JP1), THVD1450 RS485 (JP2 term), M95M02 EEPROM |
@@ -51,12 +51,14 @@ no ERC command.
 ## Bill of materials
 
 `gen/gen_bom.py` builds [docs/bom/ecu25-main-bom.md](../../docs/bom/ecu25-main-bom.md)
-and the matching CSV from the schematic netlist — 300 parts in 94 order lines,
-grouped by value and package. For bench work,
+and the matching CSV from the schematic netlist — 300 parts in 91 order lines,
+grouped by orderable value and package. For bench work,
 [docs/bom/breadboard-prototype.md](../../docs/bom/breadboard-prototype.md)
 translates the SMD design into through-hole blocks that can be built one
 subsystem at a time (and explains why the 415 V sensing must not be one of
-them).
+them). `gen/gen_breadboard_xlsx.py` renders that file as
+[docs/bom/ecu25-breadboard-bom.xlsx](../../docs/bom/ecu25-breadboard-bom.xlsx)
+— shopping list, one tab per block, safety first.
 
 ## PCB
 

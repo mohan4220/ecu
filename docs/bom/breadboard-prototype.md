@@ -10,6 +10,13 @@ Every block links to its reference schematic in [docs/circuits/](../circuits/),
 and lists its nodes explicitly — a parts table alone is not enough to wire the
 analog blocks correctly.
 
+**Spreadsheet version:** [ecu25-breadboard-bom.xlsx](ecu25-breadboard-bom.xlsx)
+— the same content as sheets you can take to the bench and the shop: a
+consolidated shopping list with spares and a tick column, one tab per block,
+and the safety rules up front. It is generated from this file
+(`hardware/kicad/gen/gen_breadboard_xlsx.py`), so edit the markdown, not the
+workbook.
+
 Production part list: [ecu25-main-bom.md](ecu25-main-bom.md) /
 [ecu25-main-bom.csv](ecu25-main-bom.csv).
 
@@ -142,7 +149,7 @@ and it already happened once during the PCB review):
 
 | Pin | Function |
 |-----|----------|
-| 2, 5 | **Coil** (pin 5 → +24 V, pin 2 → FET drain) |
+| 2, 5 | **Coil** (pin 5 → +24 V, pin 2 → driver collector/drain) |
 | 1 | COM |
 | 3 | NO |
 | 4 | NC (unused) |
@@ -158,7 +165,8 @@ anode → drain`; `relay pin 1 (COM) → +24 V`; `pin 3 (NO) → load`.
 | 1 | 1N5819 (DO-41) | D60 (SS34) | Flyback, **cathode to +24 V** |
 | 1 | **1 kΩ** | R60 (100 Ω) | Base resistor. The relay coil is 1.44 kΩ / 16.7 mA, so at hFE ≥ 100 the base needs 0.17 mA; 3.3 V through 1 kΩ gives 2.6 mA — 15× overdrive, hard saturation. The production 100 Ω is a MOSFET gate-stopper and has no function on a BJT: fit the 1 kΩ instead, not both |
 | 1 | 100 kΩ | R61 | Base pull-down — keeps the relay off while the MCU is in reset |
-| 1 | LED + **3.3 kΩ** | — | Optional indicator: **from NO (pin 3) to GND, with COM (pin 1) tied to +24 V**. 6.7 mA, 0.15 W — a 1 kΩ here would dissipate 0.48 W and cook a 1/4 W resistor |
+| 1 | LED, 5 mm, any colour | — | Optional indicator, **from NO (pin 3) to GND, with COM (pin 1) tied to +24 V** — in series with the 3.3 kΩ below. In parallel with the contacts it would light when the relay is *open* |
+| 1 | 3.3 kΩ | — | Series resistor for that LED: 6.7 mA, 0.15 W. A 1 kΩ would dissipate 0.48 W and cook a 1/4 W part |
 
 **Test:** drive from an MCU pin, hear it click, and scope the collector on release —
 it should not ring far above 25 V. With the supply current-limited, pulling the
@@ -182,7 +190,8 @@ The only block with a real op-amp loop, and the one most worth building.
 |----:|----------------|-----------|------|
 | 1 | **LM358N** (DIP-8) | U3 | Runs from **+24 V** — its input common-mode range (V+ − 1.5 V) must clear the 4.5 V reference, which it does |
 | 1 | **BC557B** (TO-92) | Q3 (BC857) | PNP pass device. Pinout from the flat face, legs down, is **C-B-E** (left pin = collector). Confirm with a DMM diode test before powering: the middle pin should read as the base to both outers |
-| 1 | 62 Ω 1 % | R20 | Sets 8.06 mA for oil/fuel. Use 249 Ω 1 % for the temperature channel's 2 mA |
+| 1 | 62 Ω 1 % | R20 | Sets 8.06 mA for the oil and fuel channels |
+| 1 | 249 Ω 1 % | R22 | Alternative to R20 for the **temperature** channel: 2.0 mA, which avoids saturating a cold NTC. Build one channel or the other |
 | 1 | 90.9 kΩ 1 % | R71 | With R70, sets the 4.5 V reference off +5 V |
 | 1 | 10 kΩ 1 % | R70 | |
 | 1 | 100 nF | C60 | Reference decoupling |
@@ -233,8 +242,8 @@ is worth trying once deliberately to see the failure.
 Reference: [06-mpu-rpm-input.png](../circuits/06-mpu-rpm-input.png)
 
 **Supply is split and it matters:** the LM393 runs from **+5 V**, and its
-open-collector output is pulled up to **+3.3 V** by R35. That is what level-
-shifts it safely into the MCU. Do not power it from 3.3 V — the LM393's input
+open-collector output is pulled up to **+3.3 V** by R35. That is what level-shifts
+it safely into the MCU. Do not power it from 3.3 V — the LM393's input
 common-mode limit is V+ − 1.5 V, which at 3.3 V is 1.8 V, leaving no room above
 the 1.65 V threshold.
 
@@ -365,6 +374,7 @@ References: [10-can-transceiver.png](../circuits/10-can-transceiver.png),
 | 1 | **MAX3485 module** (3.3 V) | U7 (THVD1450) | Prefer the 3.3 V MAX3485 over the 5 V MAX485 — the MAX485's RO output is 5 V logic (survivable on PD9, which is 5 V-tolerant, but not on every pin). Neither module has the THVD1450's true fail-safe receiver, so fit the 560 Ω bias resistors that the real board carries as belt-and-braces |
 | 1 | **25LC1024-I/P** (DIP-8) | U11 (M95M02-DR) | Use this, **not** the 25LC256: the M95M02 takes **3** address bytes and a 256-byte page, the 25LC256 takes 2 and 64. A driver validated on a 25LC256 addresses the real part wrongly on the first byte and mis-pages every write. The 25LC1024 matches on both counts |
 | 3 | 10 kΩ | R95, R96, R97 | Pull-ups on CS, WP and HOLD — floating WP/HOLD on a 25LCxxx is unreliable |
+| 2 | 560 Ω | R73, R74 | RS485 fail-safe bias. The modules lack the THVD1450's true fail-safe receiver, so unlike the real board these are **not** belt-and-braces — without them the idle bus state is undefined |
 | 1 | USB-CAN adapter (CANable / SocketCAN) | — | Replay J1939 frames from the PC against the firmware — the fastest way to test the J1939 module without an engine |
 
 ---
