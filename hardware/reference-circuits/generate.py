@@ -647,7 +647,7 @@ def sw24():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
     d += elm.Line().right(0.001).label("+24V_PROT", loc="left")
-    d += elm.Fuse().right().label("F2 PTC 1.1A 60V\n(resettable)", loc="top")
+    d += elm.Fuse().right().label("F2 PTC 1.1A 72V\n(RXEF110 radial)", loc="top")
     d += (n := elm.Dot())
     d += elm.Zener().down().reverse().label("D80\nSMBJ33CA\n(bidir)", loc="bottom")
     d += elm.Ground()

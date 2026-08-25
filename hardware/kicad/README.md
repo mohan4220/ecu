@@ -48,6 +48,16 @@ kicad-cli sch export svg hardware/kicad/ecu25-main/ecu25-main.kicad_sch -o /tmp/
 Run ERC from eeschema (Inspect → Electrical Rules Checker) — kicad-cli 7 has
 no ERC command.
 
+## Bill of materials
+
+`gen/gen_bom.py` builds [docs/bom/ecu25-main-bom.md](../../docs/bom/ecu25-main-bom.md)
+and the matching CSV from the schematic netlist — 300 parts in 94 order lines,
+grouped by value and package. For bench work,
+[docs/bom/breadboard-prototype.md](../../docs/bom/breadboard-prototype.md)
+translates the SMD design into through-hole blocks that can be built one
+subsystem at a time (and explains why the 415 V sensing must not be one of
+them).
+
 ## PCB
 
 Footprints are assigned in the schematic generator (`footprint_for()` in

@@ -90,7 +90,8 @@ FIXED = {
     "D1":  (65, 31, 0),       # input TVS
     "Q1":  (78, 31, 0),       # reverse-polarity P-FET
     "FB1": (85, 28, 0),
-    "C1":  (88.5, 34, 0),       # bulk 100uF radial
+    "C1":  (46, 57, 0),         # bulk 100uF radial (D10 body) — the
+                            # only gap wide enough left of J12
     "C3":  (46, 46, 90),      # buck VIN cap at U1
     "U1":  (56, 46, 0),       # LM5164
     "L2":  (72, 48, 0),
@@ -158,7 +159,17 @@ def main():
 
     pcb_path = os.path.abspath(f"{OUT}/ecu25-main.kicad_pcb")
     board = pcbnew.NewBoard(pcb_path)
-    board.GetDesignSettings().SetCopperLayerCount(2)
+    ds = board.GetDesignSettings()
+    ds.SetCopperLayerCount(2)
+    # must match the Default netclass written into .kicad_pro below: the zone
+    # fill happens here, before KiCad ever reads that file, so a mismatch
+    # leaves the pour too close to every pad and DRC lights up. 0.15mm is the
+    # ceiling: an LQFP-100 at 0.5mm pitch has only 0.2mm between its own pads.
+    ds.m_MinClearance = MM(0.15)
+    # U1's library footprint carries 0.2mm thermal vias under the exposed pad;
+    # that is standard for a power IC and every fab does it, but it sits under
+    # KiCad's 0.3mm default minimum, which then reports each one as an error.
+    ds.m_MinThroughDrill = MM(0.2)
 
     # outline
     rect = pcbnew.PCB_SHAPE(board)
@@ -277,12 +288,44 @@ def main():
             o.Append(MM(x), MM(y))
         board.Add(z)
 
+    # pour keepouts around every non-plated hole: the fill otherwise runs into
+    # the drill wall (0.00mm) and DRC flags each one as a hole-clearance error
+    npth = []
+    for fp in board.GetFootprints():
+        for pad in fp.Pads():
+            if pad.GetAttribute() == pcbnew.PAD_ATTRIB_NPTH:
+                pos = pad.GetPosition()
+                r = max(pad.GetDrillSize().x, pad.GetDrillSize().y) / 2e6 + 0.6
+                npth.append((pos.x / 1e6, pos.y / 1e6, r))
+    for hx, hy, r in npth:
+        z = pcbnew.ZONE(board)
+        z.SetIsRuleArea(True)
+        z.SetDoNotAllowCopperPour(True)
+        z.SetDoNotAllowTracks(False)
+        z.SetDoNotAllowVias(False)
+        z.SetDoNotAllowPads(False)
+        z.SetDoNotAllowFootprints(False)
+        ls = pcbnew.LSET()
+        ls.AddLayer(pcbnew.F_Cu)
+        ls.AddLayer(pcbnew.B_Cu)
+        z.SetLayerSet(ls)
+        o = z.Outline()
+        o.NewOutline()
+        for dx, dy in ((-r, -r), (r, -r), (r, r), (-r, r)):
+            o.Append(MM(hx + dx), MM(hy + dy))
+        board.Add(z)
+    print(f"  {len(npth)} NPTH pour keepouts")
+
     # GND pour, both layers
     for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
         z = pcbnew.ZONE(board)
         z.SetLayer(layer)
         z.SetNet(netinfo["GND"])
         z.SetMinThickness(MM(0.25))
+        # the script-time fill cannot see the netclasses (they are written to
+        # .kicad_pro below, and KiCad reads that later), so pour at the widest
+        # non-HV class — Battery 0.4mm. The HV nets are covered by KEEPOUTS.
+        z.SetLocalClearance(MM(0.4))
         o = z.Outline()
         o.NewOutline()
         for x, y in ((X0+0.5, Y0+0.5), (X1-0.5, Y0+0.5), (X1-0.5, Y1-0.5), (X0+0.5, Y1-0.5)):
@@ -377,6 +420,68 @@ def main():
         f.write("".join(parts))
     print(f"wrote ecu25-main.kicad_dru  ({len(hv_line)} line nets, "
           f"{len(hv_mid)} chain nets, {len(own_pairs)} own-chain exemptions)")
+
+    # -------------------------------------------- netclasses in .kicad_pro
+    # Track widths for routing (and DSN export -> freerouting). Only the
+    # net_settings key is rewritten; the rest of the user's project file is
+    # preserved.
+    import json
+    battery = {"/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+24V"}
+    # logic rails need current-carrying width but reach fine-pitch parts, so
+    # they cannot take a wide clearance: the LQFP-100's own pads are 0.2mm
+    # apart, and +3V3/+5V land on them (BOM review catch).
+    logic = {"+5V", "+3V3"}
+    power = {"+24V_SW", "Net-(U1-SW)", "Net-(J13-Pin_1)"}
+    power |= {n for n in nets
+              if n.endswith(("FUEL_OUT", "START_OUT", "HORN_OUT", "PREHEAT_OUT"))}
+    power |= {n for n, nodes in nets.items()
+              if any(r.startswith("K") and r[1:].isdigit() and p == "2"
+                     for r, p in nodes)}                     # relay coil drains
+    power |= hv_line                                         # contactor pairs
+
+    def klass(name, track, clearance=0.25, via=0.8, drill=0.4):
+        return {"bus_width": 12, "clearance": clearance, "diff_pair_gap": 0.25,
+                "diff_pair_via_gap": 0.25, "diff_pair_width": 0.2,
+                "line_style": 0, "microvia_diameter": 0.3,
+                "microvia_drill": 0.1, "name": name,
+                "pcb_color": "rgba(0, 0, 0, 0.000)",
+                "schematic_color": "rgba(0, 0, 0, 0.000)",
+                "track_width": track, "via_diameter": via, "via_drill": drill,
+                "wire_width": 6}
+
+    pro_path = f"{OUT}/ecu25-main.kicad_pro"
+    pro = json.load(open(pro_path))
+    pro["net_settings"] = {
+        "classes": [
+            # Default clearance is bounded by the LQFP-100's own 0.2mm
+            # pad-to-pad gap; wider spacing lives in the power classes.
+            klass("Default", 0.25, clearance=0.15),
+            klass("GND", 0.5, clearance=0.2),
+            klass("Power", 1.0, clearance=0.3, via=1.0, drill=0.5),
+            klass("Logic", 0.6, clearance=0.15, via=0.8, drill=0.4),
+            klass("Battery", 2.0, clearance=0.4, via=1.2, drill=0.6),
+            # HV clearances also live in the .kicad_dru (with per-chain
+            # exemptions); duplicating them as netclasses lets the DSN
+            # export carry them into freerouting
+            klass("HV_AC", 0.5, clearance=3.0),
+            klass("HV_CHAIN", 0.25, clearance=1.0),
+        ],
+        "meta": {"version": 3},
+        "net_colors": None,
+        "netclass_assignments": None,
+        "netclass_patterns":
+            [{"netclass": "Battery", "pattern": n} for n in sorted(battery)] +
+            [{"netclass": "Power", "pattern": n} for n in sorted(power - hv_line)] +
+            [{"netclass": "Logic", "pattern": n} for n in sorted(logic)] +
+            [{"netclass": "HV_AC", "pattern": n} for n in sorted(hv_line)] +
+            [{"netclass": "HV_CHAIN", "pattern": n} for n in sorted(hv_mid)] +
+            [{"netclass": "GND", "pattern": "GND"}],
+    }
+    with open(pro_path, "w") as f:
+        json.dump(pro, f, indent=2)
+    print(f"updated net_settings in ecu25-main.kicad_pro "
+          f"({len(battery)} battery, {len(power - hv_line)} power, "
+          f"{len(logic)} logic nets)")
 
 
 if __name__ == "__main__":

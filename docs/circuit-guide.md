@@ -223,13 +223,13 @@
 
 **What:** the MCU-to-relay interface: one logic pin switches one 24 V relay coil (fuel/run-enable, starter, both contactor coils, horn, glow).
 
-**Why needed:** an MCU pin sources ~8 mA at 3.3 V; a relay coil needs 67 mA at 24 V. And an inductive coil switched off without protection generates a voltage spike that kills the switch.
+**Why needed:** an MCU pin sources ~8 mA at 3.3 V; a relay coil needs 16.7 mA at 24 V. And an inductive coil switched off without protection generates a voltage spike that kills the switch.
 
 **How it works:** R60 feeds the gate of Q60 (2N7002K — **60 V** rated, because the +24V_SW rail legitimately reaches 30 V charging and its TVS only clamps transients at ~53 V; a 30 V FET would sit at zero margin — reviewer catch). R61 (100k) pins the gate low during MCU reset/boot so relays stay off while the firmware isn't in control yet. D60 (SS34) is the flyback path: when Q60 opens, coil current keeps flowing (V = L·di/dt), circulating through D60 and decaying, clamping the drain to one diode drop above the rail.
 
 **Ideal response:** coil energizes/de-energizes exactly with the logic pin, drain sees only 24 V.
 
-**Our response:** turn-on < 1 µs electrical (relay armature adds ~5–10 ms mechanical); coil current 67 mA, FET dissipation ≈ 9 mW (2 Ω × 67 mA²) — cold; drain peak with flyback ≈ V_rail + 0.4 V; release delayed ~2–5 ms by the flyback recirculation (irrelevant here — and the firmware interlock dead-time between K3/K4 is 500 ms anyway).
+**Our response:** turn-on < 1 µs electrical (relay armature adds ~5–10 ms mechanical); coil current 16.7 mA, FET dissipation ≈ 0.6 mW (2 Ω × 16.7 mA²) — cold; drain peak with flyback ≈ V_rail + 0.4 V; release delayed ~2–5 ms by the flyback recirculation (irrelevant here — and the firmware interlock dead-time between K3/K4 is 500 ms anyway).
 
 **How to simulate (Falstad is genuinely fun for this one; LTspice for numbers):**
 1. 24 V source → coil model (360 Ω in series with 0.5 H) → NMOS drain; source to ground; 3.3 V pulse (10 Hz) via 100 Ω to gate; 100k gate-ground.
@@ -349,7 +349,7 @@
 
 **Why needed:** coils are the board's biggest, dirtiest load. A stuck relay or shorted coil must not drag down the rail that feeds the MCU's buck converter — fault isolation between "muscle" supply and "brain" supply.
 
-**How it works:** F2, a PTC resettable fuse (1.1 A hold, **60 V-rated** — while tripped it stands off the full rail including the ~53 V load-dump clamp; common 33 V 1812 parts are under-rated here, PCB review catch), passes the normal ≈0.4 A of six coils but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
+**How it works:** F2, a PTC resettable fuse (**RXEF110, 1.1 A hold, 72 V radial** — while tripped it stands off the full rail including the ~53 V load-dump clamp, and no chip PPTC manages that at 1.1 A hold: the 1206 parts are 8 V and the 1812 parts 33 V, BOM review catch), passes the normal ≈0.1 A of six coils plus the four switched field loads but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
 
 **Ideal response:** transparent at ≤ 0.4 A forever; instant disconnect on any fault; instant recovery.
 

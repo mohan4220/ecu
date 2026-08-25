@@ -12,6 +12,12 @@ __pycache__/
 fp-info-cache
 ~*.lck
 
+# KiCad routing intermediates (regenerate via gen/route_pcb.py)
+*.dsn
+*.ses
+hardware/kicad/ecu25-main/logs/
+hardware/kicad/ecu25-main/drc.rpt
+
 # Firmware build
 firmware/build/
 

@@ -97,8 +97,8 @@ fb1 = s.place("Device:FerriteBead", "FB1", "600R@100MHz 3A", (95, y), rot=90,
               ref_at=(92, y - 6.5), val_at=(90, y - 4))
 sx = spin[0] + 6
 s.wire((sx, y), fb1.pin(1))
-c1 = CP(s, "C1", "100uF 50V", 105, y + 10)
-c2 = C(s, "C2", "100nF 50V", 120, y + 10)
+c1 = CP(s, "C1", "100uF 63V", 105, y + 10)
+c2 = C(s, "C2", "100nF 100V", 120, y + 10)
 s.wire(fb1.pin(2), (c1.pin(1)[0], y))
 s.junction((c1.pin(1)[0], y))
 s.wire((c1.pin(1)[0], y), c1.pin(1))
@@ -200,9 +200,10 @@ rail(s, "+3V3", (c8.pin(1)[0] + 8, out[1]))
 
 # --- +24V_SW at y=220
 y = 220.0
-# 60V-rated 1812 PTC (e.g. 0ZCJ0110FF2G): F2 sees the ~53V load-dump clamp
-# while tripping into a stuck coil; common 33V parts are under-rated here
-f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A 60V", (60, y), rot=90,
+# F2 must stand off the ~53V load-dump clamp while tripped into a stuck coil.
+# No chip PPTC does that at 1.1A hold (the 1206 0ZCJ0110 is 8V, the 1812 33V
+# parts are also short) — so this is a radial-leaded RXEF110, 72V (BOM review).
+f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A 72V", (60, y), rot=90,
              ref_at=(57, y - 6.5), val_at=(57, y - 4))
 rail(s, "+24V", (f2.pin(1)[0] - 6, y))
 s.wire((f2.pin(1)[0] - 6, y), f2.pin(1))
@@ -533,19 +534,19 @@ for name, p1, p2, rb_ref, dref, uref, unit, r51, r52, r53, c50, adc, yc in CT_CH
     outp = op.pin("1" if unit == 1 else "7")
     s.wire((rbdn.pin(1)[0], yc), (plus[0] - 4, yc))
     s.wire((plus[0] - 4, yc), (plus[0] - 4, plus[1]), plus)
-    rg1 = R(s, r51, "10k", minus[0] - 6, minus[1] + 8)
+    rg1 = R(s, r51, "10k 1%", minus[0] - 6, minus[1] + 8)
     s.wire(minus, (minus[0] - 3, minus[1]))
     s.wire((minus[0] - 3, minus[1]), (rg1.pin(1)[0], minus[1] + 2) if False else (minus[0] - 3, minus[1]))
     s.wire_v_then_h((minus[0] - 3, minus[1]), rg1.pin(1))
     s.glabel((rg1.pin(2)[0], rg1.pin(2)[1] + 3), "VREF_MID", rot=270)
     s.wire(rg1.pin(2), (rg1.pin(2)[0], rg1.pin(2)[1] + 3))
-    rg2 = R(s, r52, "10k", minus[0] + 5, minus[1] - 9, rot=90)
+    rg2 = R(s, r52, "10k 1%", minus[0] + 5, minus[1] - 9, rot=90)
     s.wire((minus[0] - 3, minus[1]), (minus[0] - 3, rg2.pin(1)[1]), rg2.pin(1))
     s.junction((minus[0] - 3, minus[1]))
     s.wire(rg2.pin(2), (outp[0] + 3, rg2.pin(2)[1]), (outp[0] + 3, outp[1]))
     s.junction((outp[0] + 3, outp[1]))
     s.wire(outp, (outp[0] + 3, outp[1]))
-    r53_ = R(s, r53, "6.8k (phase match)", outp[0] + 10, outp[1], rot=90)
+    r53_ = R(s, r53, "6.8k 1% (phase match)", outp[0] + 10, outp[1], rot=90)
     s.wire((outp[0] + 3, outp[1]), r53_.pin(1))
     n2 = (r53_.pin(2)[0] + 5, outp[1])
     s.wire(r53_.pin(2), n2)
@@ -1267,11 +1268,14 @@ _SOIC8 = "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
 FP_BY_REF = {
     # power chain
     "F1":  "Fuse:Fuseholder_Blade_Mini_Keystone_3568",
-    "F2":  "Fuse:Fuse_1812_4532Metric",                    # PTC 1.1A
+    "F2":  "Fuse:Fuse_Bourns_MF-RG900",                    # RXEF110 radial PPTC:
+                                                       # needs a 1.01mm drill for
+                                                       # its 0.81mm leads and a
+                                                       # 12.8mm body envelope
     "D1":  "Diode_SMD:D_SMC",                              # SMCJ33CA
     "D2":  "Diode_SMD:D_SOD-123",                          # BZT52C15
     "Q1":  "Package_TO_SOT_SMD:TO-252-2",                  # SQD50P06 DPAK: 1=G, 2=D(tab), 3=S
-    "C1":  "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",       # 100uF 50V
+    "C1":  "Capacitor_THT:CP_Radial_D10.0mm_P5.00mm",      # 100uF 63V
     "U1":  "Package_SO:SOIC-8-1EP_3.9x4.9mm_P1.27mm_EP2.514x3.2mm_ThermalVias",  # LM5164 DDA (HSOP-8)
     "L2":  "Inductor_SMD:L_12x12mm_H8mm",                  # 33uH 2A shielded (e.g. WE-PD 1245)
     "C5":  "Capacitor_SMD:C_1210_3225Metric",              # 22uF 25V

@@ -28,13 +28,18 @@ multiply by channel count for the full board.
 | 17 | EEPROM SPI wiring | 1 |
 | 18 | Display board — 4.3" TFT + RA8875 (block level) | 1 board |
 
+Ordering: [../bom/ecu25-main-bom.md](../bom/ecu25-main-bom.md) (generated from
+the schematic). Bench work: [../bom/breadboard-prototype.md](../bom/breadboard-prototype.md)
+— through-hole substitutes per subsystem, with a build order and the safety
+rules for the AC-sensing and CT blocks.
+
 ## Design calculations
 
 ### 01 — Input protection
 - F1 5 A: board draw < 1 A + relay coils; fuse protects harness.
 - D1 SMCJ33CA: 33 V standoff (above 32 V max continuous), clamps ≈53 V; buck is 100 V rated → margin.
 - Q1 P-FET −60 V: survives clamped load dump. R1 100k gate pull-down; D2 15 V zener holds V_GS within ±20 V rating.
-- C1 100 µF: ride-through ≈ 100 µF × 16 V / 0.3 A ≈ 5 ms from 24 V down to the buck's 8 V UVLO floor (the true dropout limit).
+- C1 100 µF **63 V**, C2 100 nF **100 V**: ride-through ≈ 100 µF × 16 V / 0.3 A ≈ 5 ms from 24 V down to the buck's 8 V UVLO floor (the true dropout limit). Both are rated above the ~53 V that D1 clamps to — 50 V parts on this rail are under-rated for a load dump (BOM review catch).
 
 ### 02 — Buck (LM5164-Q1)
 - FB ref 1.2 V: R5/R6 = 38.3k/12.1k → V_OUT = 1.2 × (1 + 38.3/12.1) = 5.00 V.
@@ -49,6 +54,7 @@ multiply by channel count for the full board.
 - Divider 10k/3.3k from 24 V → 5.95 V at node, wetting current ≈ 1.8 mA.
 - R12 + BAT54S clamps node to rails; clamp current ≈ 0.24 mA worst case.
 - τ = (10k∥3.3k) × 470 nF ≈ 1.2 ms; firmware debounce ×3 samples on top.
+- Ground-switched senders: R231-238 (10k to +24V, via JP4-11) pull the input high so a contact to GND reads as active. Fit either the pull-up or the field 24 V feed, never both.
 
 ### 05 — Sender input
 - Current source (LM358 + BC857 + R_set, drawn as I1): 0.5 V ref across 62 Ω → 8.06 mA (oil, fuel); 249 Ω → 2.0 mA (temp, avoids saturation on cold NTC).
@@ -62,7 +68,7 @@ multiply by channel count for the full board.
 - BAV99 + R30 clamp ±50 V pickup swings.
 
 ### 07 — AC voltage sense
-- 4 × 330k + 5.62k: ratio 1/237 → 340 Vpk → 1.43 Vpk about the 1.65 V bias (ADC sees 0.22–3.08 V). Clips at ≈276 V RMS — above the 110 % over-voltage trip point (264 V), so protection still reads real numbers at trip.
+- 4 × 330k + 5.62k: ratio 1/235.9 → 340 Vpk → 1.44 Vpk about the 1.65 V bias (ADC sees 0.22–3.08 V). Clips at ≈276 V RMS — above the 110 % over-voltage trip point (264 V), so protection still reads real numbers at trip.
 - Fault current if output shorted: 340 V / 1.32 MΩ ≈ 0.26 mA — inherently safe.
 - 4 series 1206 → ≈85 Vpk per resistor (200 V rated) + creepage across the chain.
 - R45/C40: effective fc ≈ 1.1 kHz (source ≈ 5.62k∥1.32M + 1k with 22 nF), −2.6° at 50 Hz. CT channel: R53 6.8k + 22 nF → fc ≈ 1.06 kHz — matched within ≈0.1°, so the phase error cancels in power/PF.
@@ -70,12 +76,12 @@ multiply by channel count for the full board.
 
 ### 08 — CT input
 - Burden 0.05 Ω: 5 A RMS → 0.25 V RMS, dissipation 1.25 W on a 3 W part (42 % derating).
-- MCP6002 ×2 → ±0.71 Vpk about 1.65 V at rated current; output clips at ≈11.7 A RMS (2.3×In) — ample for time-graded overcurrent curves.
+- MCP6002 ×2 → ±0.71 Vpk about 1.65 V at rated current; output clips at ≈11.7 A RMS (2.3×In) — ample for time-graded overcurrent curves. The gain pairs (R51/R52 etc.) are **1 %**: two 5 % parts would give up to 7 % gain error on every current and power reading.
 - D50 bidirectional TVS across the CT terminals — protects the pluggable connector if a live CT is opened.
 - R53 6.8k phase-matches the voltage-channel filter (see 07).
 
 ### 09 — Relay driver
-- 2N7002K (60 V): coil 24 V / 360 Ω → 67 mA. 60 V rating clears the 53 V TVS clamp with margin — a 30 V FET (AO3400) would not. R61 keeps the FET off during MCU reset.
+- 2N7002K (60 V): G5LE-1-DC24 coil is 1.44 kΩ / 400 mW → **16.7 mA** (an earlier revision of this sheet said 360 Ω / 67 mA, a 4× overstatement — every sizing decision below was made against the larger number, so all of them keep margin). 60 V rating clears the 53 V TVS clamp with margin — a 30 V FET (AO3400) would not. R61 keeps the FET off during MCU reset.
 - SS34 flyback clamps coil kickback to ~0.4 V above +24V_SW.
 - Contacts (KiCad): FUEL/START/HORN/PREHEAT switch +24V_SW to J8 (4-pole); GEN and MAINS contactor channels are **volt-free pairs** (COM+NO) on their own block **J15** — contactor coils run on their own AC source, and the panel hardware interlock stays load-bearing. J15 is an 8-pole 5.08 mm body with only the **odd poles wired** (10.16 mm live pitch): the two contactor circuits ride different AC sources (up to ~650 Vpk between them), which a fully-populated 5.08 mm block can't hold creepage for (PCB review catch — same reason J8's old poles 5–8 moved off it).
 - G5LE-1 pin map (lib symbol/footprint): coil = pins 2/5, COM = 1, NO = 3, NC = 4 unused (PCB review catch — an earlier assumption of 1/2 = coil netted every relay wrong).
@@ -94,10 +100,10 @@ multiply by channel count for the full board.
 - SWD (KiCad): TC2030 tag-connect footprint, J11 — 6 pads, no fitted connector cost; NRST also on it.
 
 ### 13 — VREF_MID buffer
-- 10k/10k from 3.3 V → 1.65 V; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF, dual feedback (final values, in KiCad): R93 10k takes DC feedback from after the 47 Ω, C93 100 nF closes the loop at AC directly from the op-amp output — the R92·C91 pole sits outside the fast loop, so low output impedance at 50 Hz without oscillation and no bias crosstalk between channels.
+- 10k/10k from 3.3 V → 1.65 V, decoupled at the divider node by C90 100 nF; MCP6002 buffer isolates the divider from 9 channel loads. 47 Ω isolation + 10 µF, dual feedback (final values, in KiCad): R93 10k takes DC feedback from after the 47 Ω, C93 100 nF closes the loop at AC directly from the op-amp output — the R92·C91 pole sits outside the fast loop, so low output impedance at 50 Hz without oscillation and no bias crosstalk between channels.
 
 ### 14 — +24V_SW
-- PTC 1.1 A hold: 6 coils × 67 mA ≈ 0.4 A normal; PTC trips on a stuck/shorted coil without killing the logic supply. **60 V-rated part** (e.g. 0ZCJ0110FF2G): while tripping it sees the ~53 V load-dump clamp, and common 33 V 1812 PTCs are under-rated for that (PCB review catch). Local SMBJ33**CA** (bidirectional, matching the two-anode TVS symbol) clamps coil-switching transients — the unidirectional SMBJ33A would risk a footprint-time cathode-to-GND forward short (schematic review catch).
+- PTC 1.1 A hold: 6 coils × 16.7 mA ≈ 0.10 A. Note F2 also gates the four **switched outputs** — K1/K2/K5/K6 take their contact COM from +24V_SW — so the 1.1 A budget covers the fuel solenoid, start pilot, preheat and horn loads too, not just the coils. Size those field loads against 1.1 A hold / 2.2 A trip. PTC trips on a stuck/shorted coil or a shorted output without killing the logic supply. **RXEF110, radial, 72 V** — while tripped it stands off the ~53 V load-dump clamp, and no *chip* PPTC does that at 1.1 A hold: the 1206 0ZCJ0110 is 8 V and the 1812 parts are 33 V (BOM review catch — an earlier revision of this sheet claimed a 60 V 1812 part that does not exist). Local SMBJ33**CA** (bidirectional, matching the two-anode TVS symbol) clamps coil-switching transients — the unidirectional SMBJ33A would risk a footprint-time cathode-to-GND forward short (schematic review catch).
 
 ### 15 — Battery sense
 - 100k/6.8k = ÷15.7 → 32 V reads 2.04 V (ADC max 3.3 V ⇒ headroom to 51 V). 12-bit LSB ≈ 12.6 mV of battery.
@@ -122,6 +128,10 @@ Independently design-reviewed 2026-08-11 (all calculations re-derived, all diagr
 KiCad capture independently SME-reviewed 2026-08-16 (netlist re-derived against this sheet, probes run): 3 criticals + 6 majors found and fixed — buck RON short, comparator input merge, supercap diode reversed, UVLO divider defeated, RS485 bias polarity, floating spare op-amp, LED reversed, VREF dual feedback captured (R93/C93), D80 → SMBJ33CA. Re-verified against a fresh netlist: ship. The schematic (`hardware/kicad/ecu25-main/`) carries the final refdes; this sheet keeps the design math.
 
 J1939 firmware module reviewed the same way (probe programs, J1939-71/-73/-81 conformance) — see firmware commit history for the fix list.
+
+BOM and breadboard-prototype guide independently SME-reviewed 2026-08-25 (netlist reconciliation, datasheet checks on every part number, arithmetic re-derived). Reached back into the design: **F2 was specified as a 60 V 1812 PPTC that does not exist** (the 0ZCJ0110 is 8 V / 1206) → RXEF110 radial 72 V; C1/C2 raised to 63 V / 100 V for the same load-dump clamp; CT gain pairs and the phase-match resistors now carry explicit 1 %. Board-side: netclass clearances retuned (the LQFP-100's own pads are 0.2 mm apart, so logic rails cannot take a wide clearance class) and the GND pour now fills at the widest non-HV class. The prototype guide itself gained the G5LE-1 pin map, the R18/R26 fault-limiting resistors, split comparator supplies, a corrected relay-driver transistor, CT burden wiring rules and the grounding rules for the low-voltage AC stand-in.
+
+A verification pass on those fixes caught three more, all now corrected: the replacement PPTC footprint was too small for an RXEF110 (0.6 mm drill against 0.81 mm leads) → `Fuse_Bourns_MF-RG900`; the BC337-40 recommended for the breadboard relay driver is **E-B-C**, the opposite of the BC557B in the sender block, and was undocumented; and the **G5LE-1 coil current was wrong by 4× in three documents** — the DC24 coil is 1.44 kΩ / 400 mW / 16.7 mA, not 360 Ω / 67 mA. Nothing downstream breaks, because every sizing decision (FET rating, PTC hold, track width, base drive) was made against the larger number and therefore keeps margin. Board-side, the GND pour now has keepouts around every NPTH barrel and the minimum through-drill is 0.2 mm to match U1's library thermal vias — with those, the generated board reports **zero DRC errors** (only the unrouted ratsnest, silk-overlap warnings and headless library artifacts remain).
 
 Footprint assignment + starting-point PCB independently SME-reviewed 2026-08-16 (pin-function mapping probes, ratings vs this sheet, IEC 60664-1 clearance/creepage): 1 critical — G5LE-1 relay pin map wrong (coil is 2/5, COM 1, NO 3; all six relays were netted dead with GEN/MAINS contacts tied to logic GND) — plus: GND had landed in the 415 V clearance class; 2.5 mm was insufficient for GEN-vs-MAINS (~680 Vpk); MKDS-3 fully-populated under-rated for 415 V L-L (→ 8-pole odd-wired J5/J6/J15, volt-free pairs split off J8 onto J15); volt-free nets unclassified; CT front-end and buck hot-loop parts packed far from their function; PTC 33 V under-rated (→ 60 V). All fixed and re-verified. Residual (accepted): 0.05 R shunt needs wide copper + Kelvin routing at layout time; DRU net names go stale if the project is re-annotated by hand (regenerate instead).
 
