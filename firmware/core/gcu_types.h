@@ -130,7 +130,7 @@ typedef struct {
     uint32_t gen_ready_qualify_ms;    /* gen volts/freq healthy time   */
 } gcu_config_t;
 
-/* Factory defaults for a 12 V 25 kVA / 415 V / 50 Hz / 24 V genset. */
+/* Factory defaults: 25 kVA, 415 V, 50 Hz, 12 V electrical system. */
 void gcu_config_defaults(gcu_config_t *cfg);
 
 #endif /* GCU_TYPES_H */

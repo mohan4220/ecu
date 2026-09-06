@@ -129,7 +129,7 @@ Reference: [04-digital-input.png](../circuits/04-digital-input.png)
 | 1 | 1 µF film | C201 | Debounce on the divider node, τ ≈ 1.4 ms |
 | 1 | 10 kΩ | R221 | Node → clamp and MCU pin. This is the resistor that limits fault current into the pin |
 | 2 | 1N4148 | D10 (BAT54S) | One anode→pin, cathode→3.3 V; one anode→GND, cathode→pin. Leakage (25 nA) is actually *lower* than the BAT54S it replaces |
-| 1 | 5.6 kΩ (optional) | R231 + JP4 | Pull-up from the input terminal to +12 V, for **ground-switched contacts** — many panel switches close to ground rather than feeding 12 V in. Fit the pull-up **or** the field 12 V feed, never both |
+| 1 | 1 kΩ (optional) | R231 + JP4 | Pull-up from the input terminal to +12 V, for **ground-switched contacts** — many panel switches close to ground rather than feeding 12 V in. Fit the pull-up **or** the field 12 V feed, never both |
 | 1 | Toggle switch or jumper | Field contact | |
 
 **Test:** 2.92 V at the node with the switch closed, 0 V open; clamped pin sits

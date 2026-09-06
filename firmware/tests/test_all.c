@@ -870,6 +870,39 @@ static void test_modbus_publish_snapshot(void)
     in.rpm_valid = false;
     modbus_publish(&in, &app, 1234, iregs);
     CHECK(iregs[10] == 0);
+
+    /* Power and PF: no AC sampling layer fills these yet, so they publish a
+     * hard 0 meaning "not measured". Pinned here so the day something does
+     * fill them, this test is what says the scaling is right. */
+    CHECK(iregs[19] == 0);
+    CHECK(iregs[20] == 0);
+    in.real_power_w = 18400.0f;   /* 18.4 kW  */
+    in.power_factor = 0.82f;
+    modbus_publish(&in, &app, 1234, iregs);
+    CHECK(iregs[19] == 184);      /* 0.1 kW steps  */
+    CHECK(iregs[20] == 820);      /* 0.001 steps   */
+}
+
+/* A legal read that cannot fit the caller's buffer is a slave-side failure
+ * (0x04), not the master's fault (0x03) — the master has no bad field to
+ * correct, so ILLEGAL DATA VALUE would send it hunting (SME catch). */
+static void test_modbus_short_buffer_is_slave_failure(void)
+{
+    modbus_t mb;
+    modbus_init(&mb, 17);
+    uint16_t iregs[MODBUS_IREG_COUNT];
+    memset(iregs, 0, sizeof(iregs));
+    uint8_t req[8], resp[16];
+
+    req[0] = 17; req[1] = 0x04; req[2] = 0; req[3] = 0;
+    req[4] = 0; req[5] = 5;            /* 5 registers = 15 bytes of answer */
+    size_t n = mb_req(req, 6);
+    size_t r = modbus_rx(&mb, req, n, iregs, resp, 8);
+    CHECK(r == 5 && resp[2] == MODBUS_EX_SLAVE_FAILURE);
+
+    /* With room, the same request succeeds. */
+    r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 15 && resp[1] == 0x04 && resp[2] == 10);
 }
 
 
@@ -897,6 +930,22 @@ static void test_batt_thresholds_are_12v(void)
     CHECK(!app.prot.active[ALARM_BATT_HIGH]);
     CHECK(!out.aux1);          /* AUX1 defaults to AUX_HORN */
 
+    /* A loaded-but-healthy 12 V battery is not an alarm. Without this the
+     * low threshold could sit anywhere below 13.8 and still pass. */
+    in.battery_v = 12.0f;
+    for (int i = 0; i < 9000; i++) {
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(!app.prot.active[ALARM_BATT_LOW]);
+
+    /* Normal charging peak is not an alarm either. */
+    in.battery_v = 15.0f;
+    for (int i = 0; i < 9000; i++) {
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(!app.prot.active[ALARM_BATT_LOW]);
+    CHECK(!app.prot.active[ALARM_BATT_HIGH]);
+
     /* A genuinely flat 12 V battery still trips. */
     in.battery_v = 10.2f;
     for (int i = 0; i < 9000; i++) {
@@ -904,6 +953,31 @@ static void test_batt_thresholds_are_12v(void)
     }
     CHECK(app.prot.active[ALARM_BATT_LOW]);
     CHECK(out.aux1);
+}
+
+/* The high threshold needs its own coverage: the 24 V-era 30 V value could
+ * never trip on a 12 V set, so a runaway regulator would have gone unreported
+ * exactly where the 16 V TVS starts conducting. Mutating batt_high_v back to
+ * 30.0f left the previous test passing (SME catch). */
+static void test_batt_high_trips_on_runaway_regulator(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.mains_v[0] = in.mains_v[1] = in.mains_v[2] = 240.0f;
+    in.mains_hz = 50.0f;
+
+    /* 16 V: regulator has lost control, and the SMCJ16CA is at its standoff. */
+    in.battery_v = 16.0f;
+    for (int i = 0; i < 9000; i++) {
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(app.prot.active[ALARM_BATT_HIGH]);
+    CHECK(!app.prot.active[ALARM_BATT_LOW]);
+    CHECK(out.aux1);           /* horn follows any unacknowledged alarm */
 }
 
 int main(void)
@@ -939,7 +1013,9 @@ int main(void)
     test_modbus_write_and_commands();
     test_modbus_write_multiple_is_atomic();
     test_modbus_publish_snapshot();
+    test_modbus_short_buffer_is_slave_failure();
     test_batt_thresholds_are_12v();
+    test_batt_high_trips_on_runaway_regulator();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

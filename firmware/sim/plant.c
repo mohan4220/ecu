@@ -63,7 +63,13 @@ void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in)
     } else if (p->fired && !p->charge_alt_broken) {
         p->battery_v = towards(p->battery_v, 14.2f, 0.25f); /* charging */
     } else {
-        p->battery_v = towards(p->battery_v, 12.6f, 0.1f); /* rest */
+        /* Surface-charge recovery after the starter drops is fast — a 75 Ah
+         * battery is back above 11 V in a second or two. The old flat
+         * 0.1 V/s crawl kept the sim below batt_low for 68 s across three
+         * crank attempts and latched BATT_LOW, a modelling artefact that
+         * would have masked real battery scenarios (SME catch). */
+        float rate = (p->battery_v < 11.5f) ? 2.0f : 0.1f;
+        p->battery_v = towards(p->battery_v, 12.6f, rate);
     }
 
     /* --- fill controller inputs -------------------------------------- */

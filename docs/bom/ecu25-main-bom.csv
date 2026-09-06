@@ -2,7 +2,9 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,100uF 35V,radial D8.0 / P3.50,100 uF 35 V radial,C1,Power,input bulk on the battery side of D3
 1,2.2uF 50V,1210,,C3,Power,X7R 50 V — buck input bypass
 2,22uF 25V,1210,,C5 C6,Power,
-1,2200uF 35V,radial D12.5 / P5.00,2200 uF 25 V radial,C9,Power,"crank hold-up: with the backlight shed it carries the logic for >50 ms down to the 6.5 V UVLO, so the MCU does not reset while the starter drags the battery down"
+1,2200uF 35V,radial D12.5 / P5.00,2200 uF 35 V radial,C9,Power,"crank hold-up: with the backlight shed it carries the logic for >50 ms down to the 6.5 V UVLO, so the MCU does not reset while the starter drags the battery down"
+1,4.7nF C0G,0603,,C10,Power,"Type-3 ripple injection CA — C0G, the ramp shape depends on it"
+1,1nF C0G,0603,,C11,Power,Type-3 ripple coupling CB into FB
 1,SMCJ16CA,SMC,SMCJ16CA,D1,Power,"bidirectional input TVS, 12 V system — clamps ~26 V"
 1,BZT52C12,SOD-123,BZT52C12,D2,Power,"gate zener, holds V_GS inside the P-FET rating"
 1,SMBJ16CA,SMB,SMBJ16CA,D80,Power,"bidirectional, +12V_SW local clamp"
@@ -13,7 +15,7 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,33uH 2A shielded,12x12x8 shielded,"33 uH 2 A shielded, 12x12",L2,Power,e.g. Wurth WE-PD 7447779233
 1,SQD50P06-15L,DPAK,SQD50P06-15L,Q1,Power,"DPAK P-FET, reverse-polarity"
 1,30.1k 1%,0603,,R3,Power,"buck UVLO: turn-on ≈ 6.5 V, low enough to ride a 12 V crank dip (30.1k 1% (UVLO 6.5V))"
-1,41.2k 1%,0603,,R4,Power,41.2k 1% (RON 300kHz)
+1,41.2k 1%,0603,,R4,Power,buck RON: fsw = Vout x 2500 / R = 303 kHz (no Vin term) (41.2k 1% (RON 300kHz))
 1,38.3k 1%,0603,,R5,Power,
 1,12.1k 1%,0603,,R6,Power,
 1,LM5164DDA-Q1,HSOP-8 (thermal pad),LM5164DDA-Q1,U1,Power,"100 V synchronous buck, HSOP-8 with thermal pad"
@@ -25,7 +27,6 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,249R 1%,0603,,R22,Analog inputs,
 5,4.7k,0603,,R26 R27 R28 R87 R187,Analog inputs,
 1,90.9k 1%,0603,,R71,Analog inputs,
-2,100k 1%,0603,,R85 R185,Analog inputs,
 2,22k 1%,0603,,R86 R186,Analog inputs,
 1,120R 3W,axial power L20.0 / pitch 25.40,,R88,Analog inputs,"3 W axial — D+ excitation, ~1.2 W continuous in a charge-fail"
 2,LM358,SOIC-8,LM358DR,U3 U4,Analog inputs,U3: sender current sources 1-2; U4: sender current source 3 + spare
@@ -50,7 +51,7 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,1M,0603,,R36,Digital inputs + MPU,"MPU comparator hysteresis, ±79 mV with the 100 k bias pair (1M (hyst +/-80mV))"
 8,5.6k 0.5W,1210,,R201 R202 R203 R204 R205 R206 R207 R208,Digital inputs + MPU,"0.5 W / 1210 — DIN divider top leg, sized for 1.6 mA wetting at 12 V"
 8,1.8k,0603,,R211 R212 R213 R214 R215 R216 R217 R218,Digital inputs + MPU,
-8,2.2k 0.5W,1210,,R231 R232 R233 R234 R235 R236 R237 R238,Digital inputs + MPU,
+8,1k 0.5W,1210,,R231 R232 R233 R234 R235 R236 R237 R238,Digital inputs + MPU,"DIN ground-side pull-up (JP4-11). 1k, not 2.2k: 2.2k left the open-contact node at 1.59 V during a crank sag, inside the STM32 indeterminate band"
 1,LM2903,SOIC-8,LM2903DR,U5,Digital inputs + MPU,MPU comparator
 1,Screw_Terminal_RELAY_OUT,screw terminal 5.08mm x06 (power),,J8,Relay drivers,
 1,Screw_Terminal_CONTACTOR,screw terminal 5.08mm x08 (power),,J15,Relay drivers,
@@ -91,6 +92,7 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 7,SS34,SMA,SS34,D3 D60 D61 D62 D63 D64 D65,"shared: Power, Relay drivers","3 A Schottky flyback, SMA"
 11,BAV199,SOT-23,BAV199,D20 D21 D22 D40 D41 D42 D43 D44 D45 D81 D82,"shared: AC sensing, Analog inputs","low-leakage dual diode, SOT-23"
 10,100k,0603,,R1 R2 R31 R32 R61 R63 R68 R75 R77 R111,"shared: Digital inputs + MPU, Power, Relay drivers",
+3,100k 1%,0603,,R7 R85 R185,"shared: Analog inputs, Power","1 % 0603 — battery and D+ sense top legs, and the Type-3 ripple injection RA (21 mV at FB, 13 mV at 8 V in)"
 13,1k,0603,,R18 R19 R23 R24 R25 R29 R99 R305 R315 R325 R335 R345 R355,"shared: AC sensing, Analog inputs, MCU",
 19,10k,0603,,R30 R33 R34 R35 R37 R38 R80 R93 R95 R96 R97 R221 R222 R223 R224 R225 R226 R227 R228,"shared: AC sensing, Comms, Digital inputs + MPU, MCU",
 9,10k 1%,0603,,R51 R52 R56 R57 R64 R65 R70 R90 R91,"shared: AC sensing, Analog inputs",1 % — CT gain pairs (1 + R52/R51 = 2) and the VREF divider

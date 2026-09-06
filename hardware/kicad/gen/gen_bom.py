@@ -29,7 +29,14 @@ RATING = {
     "0.05R 3W": "3 W 2512 current-sense (Kelvin pads), 1 %",
     "100nF 100V": "X7R 100 V — MPU AC coupling",
     "2.2uF 50V": "X7R 50 V — buck input bypass",
-    "49.9k 1%": "buck RON: sets fsw ≈ 300 kHz from a 12 V input",
+    "41.2k 1%": "buck RON: fsw = Vout x 2500 / R = 303 kHz (no Vin term)",
+    "100k 1%": "1 % 0603 — battery and D+ sense top legs, and the Type-3 "
+               "ripple injection RA (21 mV at FB, 13 mV at 8 V in)",
+    "4.7nF C0G": "Type-3 ripple injection CA — C0G, the ramp shape depends on it",
+    "1nF C0G": "Type-3 ripple coupling CB into FB",
+    "1k 0.5W": "DIN ground-side pull-up (JP4-11). 1k, not 2.2k: 2.2k left the "
+               "open-contact node at 1.59 V during a crank sag, inside the "
+               "STM32 indeterminate band",
     "30.1k 1%": "buck UVLO: turn-on ≈ 6.5 V, low enough to ride a 12 V crank dip",
     "22nF C0G": "C0G/NP0 — anti-alias filters, needs low drift",
     "12pF": "C0G — HSE load caps",
@@ -62,7 +69,7 @@ PARTS = {
     "C76": ("0.22 F 5.5 V EDLC coin", "RTC backup, radial D10/P5.0"),
     "FB2": ("BLM18PG600SN1", "ferrite bead 0603 — VDDA filter"),
     "C1":  ("100 uF 35 V radial", "input bulk on the battery side of D3"),
-    "C9":  ("2200 uF 25 V radial", "crank hold-up: with the backlight shed it carries the logic for >50 ms down to the 6.5 V UVLO, so the MCU does not reset while the starter drags the battery down"),
+    "C9":  ("2200 uF 35 V radial", "crank hold-up: with the backlight shed it carries the logic for >50 ms down to the 6.5 V UVLO, so the MCU does not reset while the starter drags the battery down"),
     "D3":  ("SS34", "blocking Schottky — stops C9 back-feeding the harness during a crank dip"),
     "D1":  ("SMCJ16CA", "bidirectional input TVS, 12 V system — clamps ~26 V"),
     "D2":  ("BZT52C12", "gate zener, holds V_GS inside the P-FET rating"),

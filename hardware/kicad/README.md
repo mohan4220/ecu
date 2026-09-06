@@ -11,7 +11,7 @@ design authority; this project is its capture.
 
 | Sheet | Contents |
 |-------|----------|
-| Power | Input protection (F1, SMCJ16CA, reverse-polarity P-FET), D3+C9 crank hold-up, LM5164 buck 12→5 V, TLV75533 LDO 5→3.3 V, PTC-protected +12V_SW rail |
+| Power | Input protection (F1, SMCJ16CA, reverse-polarity P-FET), D3+C9 crank hold-up (+12V_HLD), LM5164 buck 12→5 V with a Type-3 ripple-injection network (R7/C10/C11), TLV75533 LDO 5→3.3 V, PTC-protected +12V_SW rail |
 | Analog inputs | 3× current-source sender inputs (LM358 + BC857, 8 mA / 2 mA), battery sense ÷5.55, D+ excite + sense |
 | AC sensing | 6× ÷235.9 dividers biased at VREF_MID, 3× CT burden + MCP6002 amps, 1.65 V buffered midpoint |
 | Digital inputs + MPU | 8× 12 V inputs (divider + BAT54S clamp, per-channel GND-side-switch jumper), MPU → LM2903 comparator with hysteresis |
@@ -51,7 +51,7 @@ no ERC command.
 ## Bill of materials
 
 `gen/gen_bom.py` builds [docs/bom/ecu25-main-bom.md](../../docs/bom/ecu25-main-bom.md)
-and the matching CSV from the schematic netlist — 302 parts in 94 order lines,
+and the matching CSV from the schematic netlist — 305 parts in 97 order lines,
 grouped by orderable value and package. For bench work,
 [docs/bom/breadboard-prototype.md](../../docs/bom/breadboard-prototype.md)
 translates the SMD design into through-hole blocks that can be built one

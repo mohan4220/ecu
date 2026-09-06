@@ -28,13 +28,13 @@ def input_protection():
     d.config(fontsize=10, unit=2.2)
     d += elm.Line().right(0.001).label("J1-1\nVBAT +12V", loc="left")
     d += elm.Dot()
-    d += elm.Fuse().right().label("F1 5A\nblade", loc="top")
+    d += elm.Fuse().right().label("F1 3A\nblade", loc="top")
     d += (n1 := elm.Dot())
     d += elm.Zener().down().label("D1\nSMCJ16CA\nTVS", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n1.start).right(2.0)
     d += (q1 := elm.PFet(bulk=True).theta(-90).anchor("drain"))
-    d += elm.Label().at((q1.drain[0] + 0.75, q1.drain[1] + 1.1)).label("Q1 SQJ457EP\n-60V P-FET")
+    d += elm.Label().at((q1.drain[0] + 0.75, q1.drain[1] + 1.1)).label("Q1 SQD50P06-15L\n-60V P-FET")
     d += elm.Line().at(q1.source).right(0.8)
     d += (sj := elm.Dot())
     # gate network below the FET
@@ -43,12 +43,12 @@ def input_protection():
     d += elm.Line().at(g2.start).down(0.8)
     d += elm.Resistor().down(2.0).label("R1\n100k", loc="bottom")
     d += elm.Ground()
-    d += elm.Zener().at(g2.start).right().tox(sj.start).label("D2 15V\nBZT52C15", loc="bottom")
+    d += elm.Zener().at(g2.start).right().tox(sj.start).label("D2 12V\nBZT52C12", loc="bottom")
     d += elm.Line().up().toy(sj.start)
     # ferrite + caps
     d += elm.Inductor2(loops=2).at(sj.start).right().label("FB1 ferrite\n600Ω@100MHz 3A", loc="top")
     d += (n3 := elm.Dot())
-    d += elm.Capacitor(polar=True).down().label("C1\n100µF 50V", loc="bottom")
+    d += elm.Capacitor(polar=True).down().label("C1\n100µF 35V", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n3.start).right(2.0)
     d += (n4 := elm.Dot())
@@ -82,15 +82,22 @@ def buck():
     d += ic
     d += elm.Ground().at(ic.GND)
     # VIN rail with input cap
-    d += elm.Line().at(ic.VIN).left(1.6)
+    d += elm.Line().at(ic.VIN).left(1.2)
     d += (vin := elm.Dot())
-    d += elm.Line().left(1.0).label("+12V_PROT", loc="left")
-    d += elm.Capacitor().at(vin.start).down().label("C3\n2.2µF 50V", loc="bottom")
+    d += elm.Capacitor().at(vin.start).down(1.4).label("C3\n2.2µF 50V", loc="bottom")
     d += elm.Ground()
+    d += elm.Line().at(vin.start).left(5.6)
+    d += (hld := elm.Dot())
+    d += elm.Label().at((hld.start[0] + 1.1, hld.start[1] + 0.4)).label("+12V_HLD")
+    d += elm.Capacitor(polar=True).at(hld.start).down(2.6).label(
+        "C9 2200µF 35V\ncrank hold-up", loc="bottom")
+    d += elm.Ground()
+    d += elm.Diode().at(hld.start).left(2.0).reverse().label("D3 SS34", loc="bottom")
+    d += elm.Line().left(0.8).label("+12V_PROT", loc="left")
     # EN/UVLO divider in its own column, further left
     d += elm.Line().at(ic.EN).left(3.6)
     d += (en := elm.Dot())
-    d += elm.Resistor().at(en.start).up().toy(vin.start).label("R2\n100k")
+    d += elm.Resistor().at(en.start).up().toy(vin.start).label("R2 100k", ofst=(0.75, 0))
     d += elm.Line().tox(vin.start)
     d += elm.Dot()
     d += elm.Resistor().at(en.start).down(2.4).label("R3\n30.1k\n(UVLO 6.5V)", loc="bottom")
@@ -121,6 +128,34 @@ def buck():
     d += elm.Line().toy(ic.FB)
     d += elm.Line().to(ic.FB)
     save(d, "02-buck-12v-to-5v")
+
+
+# ------------------------------------------------- 2b. COT ripple injection
+def ripple_injection():
+    """Type-3 ripple network (LM5164 datasheet Table 6-1).
+
+    Drawn on its own because it is the least obvious part of the buck: a
+    constant-on-time regulator restarts its on-time when FB falls to the
+    1.2 V reference, so FB needs >=20mV of ripple IN PHASE with the inductor
+    current. An all-ceramic output gives ~2.7mV of capacitive (out-of-phase)
+    ripple, and the part burst-switches without this network."""
+    d = schemdraw.Drawing()
+    d.config(fontsize=10, unit=2.2)
+    d += elm.Line().right(0.001).label("SW\n(from LM5164 pin 8)", loc="left")
+    d += (sw := elm.Dot())
+    d += elm.Resistor().at(sw.start).right().label("R7\n100k", loc="top")
+    d += (mid := elm.Dot())
+    d += elm.Capacitor().right().label("C10\n4.7nF", loc="top")
+    d += elm.Dot()
+    d += elm.Line().right(0.8).label("+5V\n(V_OUT)", loc="right")
+    d += elm.Capacitor().at(mid.start).down(2.2).label("C11\n1nF C0G", loc="bottom")
+    d += (fb := elm.Dot())
+    d += elm.Line().at(fb.start).right(2.2).label("to FB\n(R5/R6 midpoint)", loc="right")
+    d += elm.Label().at((mid.start[0], mid.start[1] + 1.1)).label(
+        "R7/C10 rebuild the inductor's triangular ramp from SW;\n"
+        "C11 AC-couples it into FB. 21mV at 12.6V in, 13mV at 8V.\n"
+        "Output ripple is untouched — the ramp exists only at FB.")
+    save(d, "02b-cot-ripple-injection")
 
 
 # ---------------------------------------------------------------- 3. LDO
@@ -170,7 +205,7 @@ def digital_input():
     d += (n1 := elm.Dot())
     d += elm.Resistor().down().label("R11\n1.8k", loc="bottom")
     d += elm.Ground()
-    d += elm.Resistor().at(t0.start).up(2.4).label("R13 10k + JP4\n(fit for GND-side\nswitches)", loc="top")
+    d += elm.Resistor().at(t0.start).up(2.4).label("R13 1k + JP4\n(fit for GND-side\nswitches)", loc="top")
     d += elm.Line().up(0.4).label("+12V_PROT", loc="top")
     d += elm.Line().at(n1.start).right(1.6)
     d += (n2 := elm.Dot())
@@ -776,6 +811,7 @@ def display_board():
 if __name__ == "__main__":
     input_protection()
     buck()
+    ripple_injection()
     ldo()
     digital_input()
     sender_input()

@@ -128,8 +128,12 @@ static size_t read_regs(modbus_t *mb, uint8_t fn, const uint8_t *req,
     if ((uint32_t)start + count > limit) {
         return exception(mb, fn, MODBUS_EX_ILLEGAL_ADDR, resp);
     }
+    /* The request is legal; we simply cannot fit the answer. That is a
+     * slave-side resource failure (0x04), not the master's fault — telling
+     * it ILLEGAL DATA VALUE would send it hunting for a bad register count.
+     * The transport should always hand us a 256-byte buffer. */
     if (3u + 2u * count + 2u > resp_max) {
-        return exception(mb, fn, MODBUS_EX_ILLEGAL_VALUE, resp);
+        return exception(mb, fn, MODBUS_EX_SLAVE_FAILURE, resp);
     }
 
     resp[0] = mb->address;

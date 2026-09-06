@@ -27,6 +27,8 @@
  *     18     alarm bitmap, high word
  *     19     total real power                        0.1 kW
  *     20     power factor                            0.001
+ *            (19 and 20 read 0 until the AC sampling layer exists — see
+ *            docs/io-map.md. Zero means "not measured", not "no load".)
  *     21     run hours, low word                     1 h
  *     22     run hours, high word                    1 h
  *
@@ -52,6 +54,7 @@
 #define MODBUS_EX_ILLEGAL_FN    0x01
 #define MODBUS_EX_ILLEGAL_ADDR  0x02
 #define MODBUS_EX_ILLEGAL_VALUE 0x03
+#define MODBUS_EX_SLAVE_FAILURE 0x04
 
 #define MODBUS_IREG_COUNT       23
 #define MODBUS_HREG_COUNT       4

@@ -527,7 +527,15 @@
       },
       {
         "netclass": "Battery",
+        "pattern": "/Power/+12V_HLD"
+      },
+      {
+        "netclass": "Battery",
         "pattern": "/Power/VBAT_IN"
+      },
+      {
+        "netclass": "Battery",
+        "pattern": "/Relay drivers/OUT_COM"
       },
       {
         "netclass": "Battery",
@@ -538,12 +546,12 @@
         "pattern": "Net-(D2-K)"
       },
       {
-        "netclass": "Battery",
-        "pattern": "Net-(D3-K)"
+        "netclass": "Power",
+        "pattern": "+12V_SW"
       },
       {
         "netclass": "Power",
-        "pattern": "+12V_SW"
+        "pattern": "/Power/BUCK_SW"
       },
       {
         "netclass": "Power",
@@ -556,10 +564,6 @@
       {
         "netclass": "Power",
         "pattern": "/Relay drivers/FUEL_OUT"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "/Relay drivers/OUT_COM"
       },
       {
         "netclass": "Power",
@@ -592,10 +596,6 @@
       {
         "netclass": "Power",
         "pattern": "Net-(J13-Pin_1)"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "Net-(U1-SW)"
       },
       {
         "netclass": "Logic",

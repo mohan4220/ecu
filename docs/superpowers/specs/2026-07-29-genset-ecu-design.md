@@ -47,9 +47,9 @@ Two boards:
 
 ### 4.1 Power supply
 - Input 8–16 V DC continuous (12 V nominal); survives cranking dips and clamps load-dump transients.
-- Chain: input connector → 5 A blade fuse → SMCJ16CA bidirectional TVS → reverse-polarity P-channel MOSFET → ferrite bead + bulk capacitance → LM5164-Q1 synchronous buck (100 V max input) → 5 V rail → TLV75533 LDO → 3.3 V rail.
-- +12V_SW powers the relay coils; contacts are dry, analog pull-ups, LCD backlight; 3.3 V powers MCU, transceivers, analog front ends.
-- Bulk electrolytic sized to ride through ≥10 ms crank transients without MCU reset.
+- Chain: input connector → 3 A blade fuse → SMCJ16CA bidirectional TVS → reverse-polarity P-channel MOSFET → ferrite bead + bulk capacitance → D3 blocking Schottky + C9 hold-up → LM5164-Q1 synchronous buck (100 V max input) → 5 V rail → TLV75533 LDO → 3.3 V rail.
+- +12V_SW powers the six relay coils and the D+ excitation, and nothing else — every relay contact is dry, fed from OUT_COM by the installer. The 5 V rail powers the analog front ends and the LCD backlight; 3.3 V powers the MCU, the transceivers and the ADC reference.
+- C9 (2200 µF) behind D3 rides out the crank dip: ≈63 ms down to the 6.5 V UVLO with the backlight shed, against a 50 ms target.
 
 ### 4.2 MCU core
 - STM32F407VGT6 (LQFP100, 168 MHz, triple 12-bit ADC, 2x CAN, FPU).

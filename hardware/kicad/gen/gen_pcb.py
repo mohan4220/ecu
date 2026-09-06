@@ -154,9 +154,27 @@ def overlaps(a, b):
     return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
 
+# Net names the netclass rules below depend on by literal name. Kept here so
+# the check can run before the board is written.
+REQUIRED_NETS = ("/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+12V",
+                 "/Power/+12V_HLD", "+5V", "+3V3", "+12V_SW",
+                 "/Power/BUCK_SW", "Net-(J13-Pin_1)", "GND")
+REQUIRED_SUFFIXES = ("OUT_COM", "FUEL_OUT", "START_OUT", "AUX1_OUT",
+                     "AUX2_OUT")
+
+
 def main():
     netfile = sys.argv[1] if len(sys.argv) > 1 else "/tmp/ecu25.net"
     comps, nets = parse_netlist(netfile)
+
+    # Checked here, before anything is written: the netclass rules near the
+    # end of this file key off these exact names, and until now a stale name
+    # was only caught after the .kicad_pcb had already been saved.
+    _missing = sorted(n for n in REQUIRED_NETS if n not in nets)
+    _missing += sorted(f"*{x}" for x in REQUIRED_SUFFIXES
+                       if not any(k.endswith(x) for k in nets))
+    if _missing:
+        raise SystemExit(f"netclass rules reference missing nets: {_missing}")
     print(f"{len(comps)} components, {len(nets)} nets")
 
     pcb_path = os.path.abspath(f"{OUT}/ecu25-main.kicad_pcb")
@@ -428,22 +446,47 @@ def main():
     # net_settings key is rewritten; the rest of the user's project file is
     # preserved.
     import json
-    battery = {"/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+12V",
-               "Net-(D3-K)"}
+
+    # Every rule below must match a real net. The previous assertion only
+    # checked literal names, so a stale *suffix* pattern — exactly the
+    # OUT_COM / AUX case it was written for — could match nothing in silence
+    # and drop the field wiring to the 0.25mm Default class (SME catch).
+    def literal(label, names):
+        missing = sorted(n for n in names if n not in nets)
+        if missing:
+            raise SystemExit(f"netclass rule {label!r}: no such net {missing}")
+        return set(names)
+
+    def match(label, pred):
+        hit = {n for n in nets if pred(n)}
+        if not hit:
+            raise SystemExit(f"netclass rule {label!r} matches no net")
+        return hit
+
+    battery = literal("battery rails",
+                      {"/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+12V",
+                       "/Power/+12V_HLD"})
+    # OUT_COM carries the sum of all four field contacts, so it takes the
+    # widest class; each individual output carries only its own contact.
+    battery |= match("OUT_COM", lambda n: n.endswith("OUT_COM"))
     # logic rails need current-carrying width but reach fine-pitch parts, so
     # they cannot take a wide clearance: the LQFP-100's own pads are 0.2mm
     # apart, and +3V3/+5V land on them (BOM review catch).
-    logic = {"+5V", "+3V3"}
-    power = {"+12V_SW", "Net-(U1-SW)", "Net-(J13-Pin_1)"}
-    # OUT_COM is the common return for every field contact and can carry the
-    # installer's whole fused current, so it belongs in the wide class too.
-    power |= {n for n in nets
-              if n.endswith(("FUEL_OUT", "START_OUT", "AUX1_OUT", "AUX2_OUT",
-                             "OUT_COM"))}
-    power |= {n for n, nodes in nets.items()
-              if any(r.startswith("K") and r[1:].isdigit() and p == "2"
-                     for r, p in nodes)}                     # relay coil drains
+    logic = literal("logic rails", {"+5V", "+3V3"})
+    power = literal("switched rail",
+                    {"+12V_SW", "/Power/BUCK_SW", "Net-(J13-Pin_1)"})
+    for _sfx in ("FUEL_OUT", "START_OUT", "AUX1_OUT", "AUX2_OUT"):
+        power |= match(_sfx, lambda n, x=_sfx: n.endswith(x))
+    coils = {n for n, nodes in nets.items()
+             if any(r.startswith("K") and r[1:].isdigit() and p == "2"
+                    for r, p in nodes)}                      # relay coil drains
+    if len(coils) != 6:
+        raise SystemExit(f"expected 6 relay coil drains, found {len(coils)}")
+    power |= coils
     power |= hv_line                                         # contactor pairs
+    literal("ground", {"GND"})
+    if not hv_mid:
+        raise SystemExit("netclass rule 'hv_mid' matches no net")
 
     def klass(name, track, clearance=0.25, via=0.8, drill=0.4):
         return {"bus_width": 12, "clearance": clearance, "diff_pair_gap": 0.25,
@@ -454,13 +497,6 @@ def main():
                 "schematic_color": "rgba(0, 0, 0, 0.000)",
                 "track_width": track, "via_diameter": via, "via_drill": drill,
                 "wire_width": 6}
-
-    # A renamed rail used to fall through to Default in silence. Every
-    # pattern must match a real net in this netlist.
-    declared = battery | (power - hv_line) | logic | hv_line | hv_mid | {"GND"}
-    orphans = sorted(n for n in declared if n not in nets)
-    if orphans:
-        raise SystemExit(f"netclass patterns match no net: {orphans}")
 
     pro_path = f"{OUT}/ecu25-main.kicad_pro"
     pro = json.load(open(pro_path))

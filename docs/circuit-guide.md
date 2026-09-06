@@ -54,11 +54,13 @@
 
 **How it works:** an internal high-side switch connects VIN to L2 for a fraction D of each ~300 kHz cycle (D ≈ V_OUT/V_IN ≈ 42 %). When it opens, the internal low-side FET carries the inductor current (synchronous rectification). L2 + C5/C6 average the chopped waveform to smooth DC. The FB divider (R5/R6 = 38.3k/12.1k against the 1.2 V reference) sets V_OUT = 1.2 × (1 + 38.3/12.1) = 5.00 V. R2/R3 on EN set a **6.5 V** undervoltage lockout, and they sense the **hold-up node** rather than the battery — sensing the battery would trip EN the moment the harness sagged and switch the buck off while C9 was still full. R4 on the RON pin programs the on-time: the RON pin sets f_SW = V_OUT × 2500 / R_RON, which has **no V_IN term** — the on-time varies inversely with V_IN precisely so frequency stays put. **41.2k** gives ≈300 kHz. (The old 100k was never 300 kHz at any input voltage: it is 125 kHz.) C4 bootstraps the high-side gate drive.
 
+**Ripple injection (R7/C10/C11).** A constant-on-time regulator has no error amplifier: it restarts the on-time whenever FB falls to the 1.2 V reference, so it needs at least **20 mV of ripple at FB that is in phase with the inductor current**. An all-ceramic output gives about 2.7 mV, and that ripple is *capacitive* — 90° out of phase — so the part would burst-switch: several on-times in quick succession, then a long off-time. The datasheet's Type-3 network fixes it without touching output quality: R7 (100k) and C10 (4.7 nF) form an RC across SW and the output that reconstructs the inductor's triangular ramp, and C11 (1 nF C0G) AC-couples that ramp into FB. Sizing: C10 ≥ 10/(f_SW × (R5∥R6)) = 3.6 nF; R7 ≤ t_ON×(V_IN−V_OUT)/(20 mV × C10) = 106k. The result is 21 mV of FB ripple at 12.6 V and 13 mV at 8 V, against the datasheet's 12 mV floor.
+
 **Ideal response:** perfectly flat 5.000 V from 8–16 V input, 0–1 A load, zero ripple, 100 % efficiency.
 
-**Our response:** 5.00 V ±2 %; ripple ≈ 10–30 mVpp at 300 kHz; inductor ripple current ≈ 0.35 A (35 %); efficiency ≈ 88 % at 12 V/0.5 A; survives input to 100 V, so a load dump cannot reach it.
+**Our response:** 5.00 V ±2 %; ripple ≈ 10–30 mVpp at 300 kHz; inductor ripple current ≈ 0.29 A (29 %) at 12 V, 0.33 A at 14.4 V; efficiency ≈ 88 % at 12 V/0.5 A; survives input to 100 V, so a load dump cannot reach it.
 
-**How to simulate (LTspice):** TI publishes an LM5164 unencrypted PSpice model — import it into LTspice (no built-in equivalent exists there). Build exactly the diagram: 33 µH, 2×22 µF, FB divider, UVLO divider, RON = 41.2k.
+**How to simulate (LTspice):** TI publishes an LM5164 unencrypted PSpice model — import it into LTspice (no built-in equivalent exists there). Build exactly the diagram: 33 µH, 2×22 µF, FB divider, UVLO divider, RON = 41.2k, and the Type-3 network — leave the Type-3 network out of one run to see the burst-switching it prevents.
 1. **Start-up:** step VIN to 12 V, watch V_OUT rise — should settle in ~2 ms, overshoot < 5 %.
 2. **Line transient:** VIN triangle 8 → 16 → 8 V over 20 ms — V_OUT deviation < 50 mV.
 3. **Load step:** 0.1 → 1 A in 1 µs — V_OUT dip < 150 mV, recovery < 500 µs.
@@ -101,11 +103,11 @@
 
 **Why needed:** a 5 m wire beside a starter cable picks up spikes and noise; the switch at its end bounces mechanically; some engines switch signals to +12 V, others to ground. The MCU pin needs 0–3.3 V, clean, unambiguous.
 
-**How it works:** R10/R11 (5.6k/1.8k) divide the 12 V level by ≈4.1; the switch's wetting current (~1.6 mA) keeps mechanical contacts oxide-free. R13+JP4 adds an optional pull-up from the **field terminal** (upstream of R10) to +12 V, so a *ground-closing* switch also produces two distinct states: switch open → terminal pulled to 12 V through R13 → node ≈ 2.25 V → HIGH (R13 is **2.2k**: at 5.6k the open node sat at 1.66 V, inside the STM32's indeterminate band between V_IL 1.12 V and V_IH 1.79 V — a review catch); switch closed → terminal at 0 V → LOW. (Placement matters: hung on the divider node instead, both states would read HIGH — a bug caught in review of this very document.) C10 (1 µF, τ ≈ 1.4 ms) swallows noise bursts; R12 + BAT54S clamp whatever survives to the 3.3 V rails; firmware debounces (3 consecutive 10 ms samples).
+**How it works:** R10/R11 (5.6k/1.8k) divide the 12 V level by ≈4.1; the switch's wetting current (~1.6 mA) keeps mechanical contacts oxide-free. R13+JP4 adds an optional pull-up from the **field terminal** (upstream of R10) to +12 V, so a *ground-closing* switch also produces two distinct states: switch open → terminal pulled to 12 V through R13 → node ≈ 2.57 V → HIGH (R13 is **1k**: at 5.6k the open node sat at 1.66 V, inside the STM32's indeterminate band between V_IL 1.115 V and V_IH 1.785 V; 2.2k lifted it to 2.25 V at 12.6 V but fell back to 1.59 V during an 8.5 V crank sag, so 1k is what holds the node above V_IH across the whole declared 8–16 V input range — two review catches); switch closed → terminal at 0 V → LOW. (Placement matters: hung on the divider node instead, both states would read HIGH — a bug caught in review of this very document.) C10 (1 µF, τ ≈ 1.4 ms) swallows noise bursts; R12 + BAT54S clamp whatever survives to the 3.3 V rails; firmware debounces (3 consecutive 10 ms samples).
 
 **Ideal response:** instant, exact translation: ≥ some threshold → logic 1, below → logic 0, immune to any noise.
 
-**Our response:** node voltage = V_in × 0.248. With STM32 thresholds (V_IH ≈ 2.31 V, V_IL ≈ 0.99 V): input ≥ ~9.3 V reads HIGH, ≤ ~4.0 V reads LOW — dead-band in between rejects floating/leaky wiring. Response delay ≈ 1.2 ms (RC) + up to 30 ms (debounce) — irrelevant for switches. Survives ±40 V continuous.
+**Our response:** node voltage = V_in × 0.243 (5.6k/1.8k). Against the STM32F407's datasheet thresholds at VDD 3.3 V — **V_IL 1.115 V, V_IH 1.785 V** (0.35·VDD−0.04 and 0.45·VDD+0.3, *not* the generic 0.3/0.7·VDD rule of thumb) — input ≥ **7.34 V** reads HIGH and ≤ 4.59 V reads LOW; the dead-band in between rejects floating or leaky wiring. Response delay ≈ 1.4 ms (RC) + up to 30 ms (debounce) — irrelevant for switches. Survives ±40 V continuous.
 
 **How to simulate (Falstad first — this one is satisfying to watch):**
 1. Build divider + cap + clamp diodes; drive with a switch to a 12 V source.
@@ -371,11 +373,11 @@
 
 **What:** measures the battery/rail voltage — battery high/low alarms, charge monitoring context.
 
-**How it works:** R85/R86 (100k/22k = ÷5.55) scale 0–51 V into the ADC range; R87 + BAV199 clamp faults; C85 filters.
+**How it works:** R85/R86 (100k/22k = ÷5.545) scale 0–18.3 V into the ADC range; R87 + BAV199 clamp faults; C85 filters.
 
-**Ideal / ours:** ideal — exact ratio, instant. Ours — 12 V → 1.53 V, 32 V → 2.04 V; resolution 12.6 mV of battery per count; τ ≈ (100k∥6.8k + 4.7k)×100 nF ≈ 1.1 ms.
+**Ideal / ours:** ideal — exact ratio, instant. Ours — 12 V → 2.164 V, 16 V → 2.885 V, full scale at 18.3 V; resolution 4.5 mV of battery per count; τ ≈ (100k∥22k + 4.7k)×100 nF ≈ 2.3 ms.
 
-**Simulate:** DC sweep 0–60 V in ngspice; verify linearity to 51 V and clamp beyond. One minute of work — do it inside KiCad when the sheet is drawn, as the first "the simulator works" smoke test.
+**Simulate:** DC sweep 0–60 V in ngspice; verify linearity to 18 V and clamp beyond. One minute of work — do it inside KiCad when the sheet is drawn, as the first "the simulator works" smoke test.
 
 **Reading:** slope error > 2 % = wrong E96 value fitted (the assembly-error detector).
 

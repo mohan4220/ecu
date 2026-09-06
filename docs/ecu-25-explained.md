@@ -128,27 +128,27 @@ The battery rail on an engine is one of the nastiest electrical environments in 
 
 ### 3.1 What the input must survive
 
-- **Cranking dips.** When the starter motor engages, it draws hundreds of amps and the "24 V" rail sags — briefly down to 9–10 V. If our 5 V and 3.3 V rails collapse during that dip, the MCU resets mid-start-sequence — unacceptable. So the input range is **8–16 V continuous**, and a bulk electrolytic capacitor stores enough charge to ride through the worst milliseconds.
+- **Cranking dips.** When the starter motor engages, it draws hundreds of amps and the 12 V rail sags — briefly down to 9–10 V. If our 5 V and 3.3 V rails collapse during that dip, the MCU resets mid-start-sequence — unacceptable. So the input range is **8–16 V continuous**, and a bulk electrolytic capacitor stores enough charge to ride through the worst milliseconds.
 - **Load dump.** The classic automotive fault: the battery cable falls off (or is disconnected) while the charge alternator is charging hard. The alternator's field can't collapse instantly, so the rail flies up — in a 12 V system, transients approaching **60–100 V for tens of milliseconds**. Anything not designed for this dies.
 - **Reverse battery.** A mechanic connects the battery backwards. It happens constantly in the field. The design must block it harmlessly.
 - **Inductive spikes.** Every solenoid, relay coil, and injector on the machine kicks voltage spikes back onto the rail when switched off.
 
 Relevant standard (for awareness, not certification): **ISO 7637-2** defines these transient pulses formally.
 
-What the "24 V" rail actually looks like over a start/stop cycle:
+What the 12 V rail actually looks like over a start/stop cycle:
 
 ```
  V
-100┤                                  ╭╮ load dump — UNPROTECTED could reach here
+ 60┤                                  ╭╮ load dump — UNPROTECTED could reach here
    │                                  ││
- 53┤ · · · · · · · · · · · · · · · · ·││· · TVS clamps it to ~26 V
+ 26┤ · · · · · · · · · · · · · · · · ·││· · TVS clamps it to ~26 V
    │                                  ││
- 32┤            charging              │╰──╮
- 28┤        ╭─────────────────────────╯   ╰────
- 24┤────╮   │                                    nominal
+ 16┤            charging              │╰──╮
+ 14┤        ╭─────────────────────────╯   ╰────
+12.6┤────╮   │                                   nominal (rest)
    │    │   │
- 10┤    ╰╮ ╭╯  ◄── crank dip (starter draws 100s of amps)
-  9┤     ╰─╯       board must stay alive through this
+8.5┤    ╰╮ ╭╯  ◄── crank dip (starter draws 100s of amps)
+   │     ╰─╯       board must stay alive through this
    └──────┬───┬───────────────┬──────────────── t
         crank engine        battery lead
               fires         knocked off
@@ -156,9 +156,11 @@ What the "24 V" rail actually looks like over a start/stop cycle:
 
 ### 3.2 Each protection element
 
-- **Fuse (5 A blade type).** Last-resort protection: if something on the board fails short, the fuse opens before the wiring harness catches fire. It protects the *wiring*, not the electronics — fuses are far too slow to save semiconductors.
+- **Fuse (3 A blade type).** Last-resort protection: if something on the board fails short, the fuse opens before the wiring harness catches fire. It protects the *wiring*, not the electronics — fuses are far too slow to save semiconductors.
 
-- **TVS diode (SMCJ16CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (33 V) it is invisible. When a transient exceeds its breakdown (~36–40 V) it avalanches and clamps the rail (clamping ~26 V at rated pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
+- **TVS diode (SMCJ16CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (16 V) it is invisible. When a transient exceeds its breakdown (17.8–19.7 V) it avalanches and clamps the rail (26 V at the rated 57.7 A pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
+
+  **Consequence worth stating plainly:** a 16 V standoff means this board is a 12 V board and nothing else. Jump-starting the set from a 24 V source puts the TVS into hard conduction, and it will fail short — which is the safe failure, but the board is destroyed. That is the deliberate trade: tight clamping for a 12 V system, no tolerance for a 24 V mistake.
 
 - **Reverse-polarity P-channel MOSFET.** The textbook answer is a series diode — but a diode drops ~0.7 V continuously, wasting power and reducing headroom during crank dips. The production trick: a **P-MOSFET with source toward the load, gate pulled to ground**. With correct battery polarity, the gate is ~12 V below the source, the FET turns fully on, and drop is just I×R_DS(on) — millivolts. With reversed battery, the gate-source voltage is the wrong polarity, the FET stays off, and (with the body diode oriented to block) no current flows. A zener protects the gate from exceeding ±V_GS(max).
 
