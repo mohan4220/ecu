@@ -547,14 +547,6 @@
       },
       {
         "netclass": "Power",
-        "pattern": "/Relay drivers/HORN_OUT"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "/Relay drivers/PREHEAT_OUT"
-      },
-      {
-        "netclass": "Power",
         "pattern": "/Relay drivers/START_OUT"
       },
       {

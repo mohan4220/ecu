@@ -84,14 +84,16 @@ FIXED = {
     "J2":  (85, 161, 180),    # DIN x8 + wetting
     "J9":  (108, 161, 180),   # CAN
     "J10": (126, 161, 180),   # RS485
-    "J8":  (150, 161, 180),   # switched +24V relay outputs
+    "J8":  (160, 161, 180),   # OUT_COM + 4 dry NO outputs (6-pole body)
     "J15": (204, 161, 180),   # volt-free contactor pairs, odd poles
     # power chain in electrical order, buck hot loop tight (SME review)
     "D1":  (65, 31, 0),       # input TVS
     "Q1":  (78, 31, 0),       # reverse-polarity P-FET
     "FB1": (85, 28, 0),
-    "C1":  (46, 57, 0),         # bulk 100uF radial (D10 body) — the
-                            # only gap wide enough left of J12
+    "C1":  (44, 57, 0),         # bulk 100uF radial — the only gap wide
+                            # enough left of J12
+    "C9":  (60, 62, 0),         # 2200uF crank hold-up: too big to shelf-pack,
+                            # sits below L2 and right of C1
     "C3":  (46, 46, 90),      # buck VIN cap at U1
     "U1":  (56, 46, 0),       # LM5164
     "L2":  (72, 48, 0),

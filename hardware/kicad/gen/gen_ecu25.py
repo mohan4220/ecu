@@ -52,8 +52,9 @@ def conn(s, ref, val, npins, x, y, name=""):
 # Sheet 1 — POWER
 # =================================================================
 s = p.new_sheet("Power", "power.kicad_sch")
-s.text((20, 18), "Input protection + 5V buck + 3.3V LDO + switched 24V rail."
-                 "  '+24V' = protected rail (post Q1).", size=2.0)
+s.text((20, 18), "12V system. Input protection + 5V buck + 3.3V LDO + switched"
+                 " 12V rail.  '+12V' = protected rail (post Q1); '+12V_HLD' is"
+                 " the diode-isolated hold-up node that rides out crank dips.", size=2.0)
 
 # --- input protection chain, left to right at y=50
 y = 50.0
@@ -65,7 +66,7 @@ f1 = s.place("Device:Fuse", "F1", "5A blade", (45, y), rot=90)
 s.wire((40, y), f1.pin(1))
 s.label((40, y), "VBAT_IN")
 # D_TVS rot 90: pin2 top, pin1 bottom — rail joins the TOP pin only
-d1 = s.place("Device:D_TVS", "D1", "SMCJ33CA", (55, y + 10), rot=90)
+d1 = s.place("Device:D_TVS", "D1", "SMCJ16CA", (55, y + 10), rot=90)
 s.wire(f1.pin(2), (d1.pin(2)[0], y))          # to TVS column
 s.junction((d1.pin(2)[0], y))
 s.wire((d1.pin(2)[0], y), d1.pin(2))
@@ -83,11 +84,11 @@ s.wire(spin, (spin[0] + 6, spin[1] if abs(spin[1]-y) < 3 else y))
 r1 = R(s, "R1", "100k", gpin[0], gpin[1] + 12)
 s.wire(gpin, r1.pin(1))
 gnd(s, r1.pin(2))
-d2 = s.place("Device:D_Zener", "D2", "BZT52C15", (gpin[0] + 7, gpin[1] + 5), rot=0,
+d2 = s.place("Device:D_Zener", "D2", "BZT52C12", (gpin[0] + 7, gpin[1] + 5), rot=0,
              ref_at=(gpin[0] + 9.5, gpin[1] + 3), val_at=(gpin[0] + 9.5, gpin[1] + 5.5))
 s.wire(gpin, (gpin[0], d2.pin(2)[1]) if False else gpin)  # keep simple below
 s.wire(d2.pin(2), (d2.pin(2)[0], gpin[1]))                 # zener A up to gate row? see below
-# D2 anode -> gate node, cathode -> source (holds VGS <= 15V)
+# D2 anode -> gate node, cathode -> source (holds VGS <= 12V)
 s.wire((d2.pin(2)[0], gpin[1]), gpin)
 s.junction(gpin)
 s.wire(d2.pin(1), (spin[0], d2.pin(1)[1]), spin)
@@ -97,8 +98,8 @@ fb1 = s.place("Device:FerriteBead", "FB1", "600R@100MHz 3A", (95, y), rot=90,
               ref_at=(92, y - 6.5), val_at=(90, y - 4))
 sx = spin[0] + 6
 s.wire((sx, y), fb1.pin(1))
-c1 = CP(s, "C1", "100uF 63V", 105, y + 10)
-c2 = C(s, "C2", "100nF 100V", 120, y + 10)
+c1 = CP(s, "C1", "100uF 35V", 105, y + 10)
+c2 = C(s, "C2", "100nF", 120, y + 10)
 s.wire(fb1.pin(2), (c1.pin(1)[0], y))
 s.junction((c1.pin(1)[0], y))
 s.wire((c1.pin(1)[0], y), c1.pin(1))
@@ -107,33 +108,54 @@ s.junction((c2.pin(1)[0], y))
 s.wire((c2.pin(1)[0], y), c2.pin(1))
 gnd(s, c1.pin(2)); gnd(s, c2.pin(2))
 s.wire((c2.pin(1)[0], y), (125, y))
-rail(s, "+24V", (125, y))
+rail(s, "+12V", (125, y))
 
 # --- buck at y=110
 u1 = s.place("Regulator_Switching:LM5164DDA", "U1", "LM5164DDA-Q1", (110, 110),
              ref_at=(104, 94), val_at=(112, 94))
 vin = u1.pin(2)
-s.wire(vin, (vin[0] - 8, vin[1]))
-rail(s, "+24V", (vin[0] - 8, vin[1]))
+# +12V -> D3 (blocking) -> C9 hold-up -> VIN. The diode stops the bank
+# back-feeding the harness during a crank dip, so the logic rides through;
+# the coils tap +12V ahead of it and simply latch through the sag.
+d3 = s.place("Device:D_Schottky", "D3", "SS34", (vin[0] - 24, vin[1]), rot=180,
+             ref_at=(vin[0] - 27, vin[1] - 5), val_at=(vin[0] - 27, vin[1] - 2.5))
+# rot 180 puts pin1 (K) on the RIGHT and pin2 (A) on the LEFT. Anode faces
+# the battery, cathode feeds the buck — wiring a pin back across the body
+# shorts the diode out through the other pin once wires are normalized.
+kk3, aa3 = d3.pin(1), d3.pin(2)
+if not kk3[0] > aa3[0]:
+    raise SystemExit("D3: rot=180 no longer puts K right of A")
+s.wire(aa3, (vin[0] - 34, vin[1]))
+rail(s, "+12V", (vin[0] - 34, vin[1]))
+s.wire(kk3, (vin[0] - 8, vin[1]))
 s.junction((vin[0] - 8, vin[1]))
-c3 = C(s, "C3", "2.2uF 100V", vin[0] - 8, vin[1] + 10)
+s.wire((vin[0] - 8, vin[1]), vin)
+c9 = CP(s, "C9", "2200uF 25V", vin[0] - 16, vin[1] + 10)
+s.wire((vin[0] - 16, vin[1]), c9.pin(1))
+s.junction((vin[0] - 16, vin[1]))
+gnd(s, c9.pin(2))
+c3 = C(s, "C3", "2.2uF 50V", vin[0] - 8, vin[1] + 10)
 s.wire((vin[0] - 8, vin[1]), c3.pin(1))
 gnd(s, c3.pin(2))
 # UVLO divider
 en = u1.pin(3)
 r2 = R(s, "R2", "100k", en[0] - 15, en[1] - 6)
-r3 = R(s, "R3", "23.2k (UVLO 8V)", en[0] - 15, en[1] + 6)
+r3 = R(s, "R3", "30.1k 1% (UVLO 6.5V)", en[0] - 15, en[1] + 6)
 s.wire(r2.pin(2), r3.pin(1))
 # single run EN -> divider midpoint (a stray stub here used to end ON C3's
-# column and shorted EN to +24V — reviewer finding M1)
+# column and shorted EN to +12V — reviewer finding M1)
 s.wire_h_then_v(en, ((r2.pin(2)[0] + r3.pin(1)[0]) / 2, (r2.pin(2)[1] + r3.pin(1)[1]) / 2))
 s.junction(((r2.pin(2)[0] + r3.pin(1)[0]) / 2, (r2.pin(2)[1] + r3.pin(1)[1]) / 2))
-rail(s, "+24V", r2.pin(1))
+# UVLO senses the HOLD-UP node, not the battery: sensing +12V would trip
+# EN the moment the harness sags during crank and switch the buck off while
+# C9 still holds plenty of charge, defeating the whole ride-through.
+s.wire(r2.pin(1), (r2.pin(1)[0], vin[1]))
+s.junction((r2.pin(1)[0], vin[1]))
 gnd(s, r3.pin(2))
 # RON — R4 on its own column; at ron-8 it shared C3's column and the
 # vertical run passed through C3's grounded pin (reviewer finding C1)
 ron = u1.pin(4)
-r4 = R(s, "R4", "100k (RON 300kHz)", ron[0] - 4, ron[1] + 8)
+r4 = R(s, "R4", "49.9k 1% (RON 300kHz)", ron[0] - 4, ron[1] + 8)
 s.wire_h_then_v(ron, r4.pin(1))
 gnd(s, r4.pin(2))
 # GND + EP
@@ -198,23 +220,25 @@ gnd(s, c8.pin(2))
 s.wire((c8.pin(1)[0], out[1]), (c8.pin(1)[0] + 8, out[1]))
 rail(s, "+3V3", (c8.pin(1)[0] + 8, out[1]))
 
-# --- +24V_SW at y=220
+# --- +12V_SW at y=220
 y = 220.0
 # F2 must stand off the ~53V load-dump clamp while tripped into a stuck coil.
 # No chip PPTC does that at 1.1A hold (the 1206 0ZCJ0110 is 8V, the 1812 33V
 # parts are also short) — so this is a radial-leaded RXEF110, 72V (BOM review).
 f2 = s.place("Device:Polyfuse", "F2", "PTC 1.1A 72V", (60, y), rot=90,
              ref_at=(57, y - 6.5), val_at=(57, y - 4))
-rail(s, "+24V", (f2.pin(1)[0] - 6, y))
+rail(s, "+12V", (f2.pin(1)[0] - 6, y))
 s.wire((f2.pin(1)[0] - 6, y), f2.pin(1))
-d80 = s.place("Device:D_TVS", "D80", "SMBJ33CA", (f2.pin(2)[0] + 8, y + 10), rot=90)
+d80 = s.place("Device:D_TVS", "D80", "SMBJ16CA", (f2.pin(2)[0] + 8, y + 10), rot=90)
 s.wire(f2.pin(2), (d80.pin(2)[0], y))
 s.junction((d80.pin(2)[0], y))
 s.wire((d80.pin(2)[0], y), d80.pin(2))
 gnd(s, d80.pin(1))
 s.wire((d80.pin(2)[0], y), (d80.pin(2)[0] + 12, y))
-s.glabel((d80.pin(2)[0] + 12, y), "+24V_SW", shape="output")
-s.text((40, 235), "+24V_SW feeds relay coils K1-K6 and D+ excitation; PTC trips on stuck coil.", size=1.5)
+s.glabel((d80.pin(2)[0] + 12, y), "+12V_SW", shape="output")
+s.text((40, 235), "+12V_SW feeds ONLY the K1-K6 coils (6 x 33mA) and D+ excitation"
+                  " (100mA) = 300mA. Field loads are fed from J8 pin 1 by the"
+                  " installer, so no field current crosses this board.", size=1.5)
 
 # =================================================================
 # Sheet 2 — ANALOG INPUTS (senders, battery sense, D+)
@@ -314,23 +338,23 @@ gnd(s, u4b.pin("5"))
 for uref, xp in (("U3", 90.0), ("U4", 110.0)):
     pu = s.place("Amplifier_Operational:LM358", uref, "LM358", (xp, 252), unit=3,
                  ref_at=(xp - 3, 244), val_at=(xp + 1.5, 244))
-    rail(s, "+24V", pu.pin("8"))
+    rail(s, "+12V", pu.pin("8"))
     gnd(s, pu.pin("4"))
     cb = C(s, f"C6{3 if uref=='U3' else 4}", "100nF", xp + 10, 250)
-    rail(s, "+24V", cb.pin(1))
+    rail(s, "+12V", cb.pin(1))
     gnd(s, cb.pin(2))
-s.text((45, 268), "LM358 V+ = +24V: input CM range must stay >=1.5V below V+;"
+s.text((45, 268), "LM358 V+ = +12V: input CM range must stay >=1.5V below V+;"
                   " 4.5V ref OK. Current source from +5V rail.", size=1.5)
 
 # --- battery sense
 bx, by = 200.0, 60.0
 s.text((bx - 10, by - 12), "Battery voltage sense (/15.7)", size=1.7)
 r85 = R(s, "R85", "100k 1%", bx, by, rot=90)
-rail(s, "+24V", (r85.pin(1)[0] - 5, by))
+rail(s, "+12V", (r85.pin(1)[0] - 5, by))
 s.wire((r85.pin(1)[0] - 5, by), r85.pin(1))
 n1 = (r85.pin(2)[0] + 4, by)
 s.wire(r85.pin(2), n1)
-r86 = R(s, "R86", "6.8k 1%", n1[0], by + 10)
+r86 = R(s, "R86", "22k 1%", n1[0], by + 10)
 s.junction(n1)
 s.wire(n1, r86.pin(1))
 gnd(s, r86.pin(2))
@@ -349,8 +373,8 @@ s.glabel((n2[0] + 8, n2[1]), "ADC_VBAT", shape="output")
 # --- D+ excite + sense
 dx, dy = 200.0, 120.0
 s.text((dx - 10, dy - 12), "Charge alternator D+ excite (~100mA) + sense", size=1.7)
-r88 = R(s, "R88", "220R 5W", dx, dy, rot=90)
-s.glabel((r88.pin(1)[0] - 5, dy), "+24V_SW", rot=180)
+r88 = R(s, "R88", "120R 3W", dx, dy, rot=90)
+s.glabel((r88.pin(1)[0] - 5, dy), "+12V_SW", rot=180)
 s.wire((r88.pin(1)[0] - 5, dy), r88.pin(1))
 dnode = (r88.pin(2)[0] + 4, dy)
 s.wire(r88.pin(2), dnode)
@@ -363,7 +387,7 @@ r85a = R(s, "R185", "100k 1%", dnode[0] + 10, dy, rot=90)
 s.wire(dnode, r85a.pin(1))
 dn1 = (r85a.pin(2)[0] + 4, dy)
 s.wire(r85a.pin(2), dn1)
-r86a = R(s, "R186", "6.8k 1%", dn1[0], dy + 10)
+r86a = R(s, "R186", "22k 1%", dn1[0], dy + 10)
 s.junction(dn1)
 s.wire(dn1, r86a.pin(1))
 gnd(s, r86a.pin(2))
@@ -581,7 +605,7 @@ s.text((20, 18), "8x 24V digital inputs (divider + clamp, fw debounce);"
                  " MPU pickup -> LM2903 comparator with +/-80mV hysteresis.", size=2.0)
 
 j2 = conn(s, "J2", "Screw_Terminal_DIN", 10, 25, 60)
-s.text((18, 46), "J2: DIN1..DIN8 + 2x GND. Switch to +24V (default) or GND"
+s.text((18, 46), "J2: DIN1..DIN8 + 2x GND. Switch to +12V (default) or GND"
                  " (fit JP per channel).", size=1.5)
 gnd(s, j2.pin(9))
 gnd(s, j2.pin(10))
@@ -593,24 +617,24 @@ for i in range(8):
     x0 = 62.0
     s.label((x0 - 6, yc), f"DIN{i+1}_T", rot=180)
     # pull-up R23x + solder jumper for GND-side switches (terminal side of series R)
-    r13 = R(s, f"R{231+i}", "10k 0.5W", x0 + 2, yc - 18)
+    r13 = R(s, f"R{231+i}", "5.6k 0.5W", x0 + 2, yc - 18)
     jp = s.place("Jumper:SolderJumper_2_Open", f"JP{4+i}", "GND-side sw", (x0 + 2, yc - 6.5), rot=270,
                  ref_at=(x0 + 5, yc - 8), val_at=(x0 + 5, yc - 5.5))
-    rail(s, "+24V", r13.pin(1))
+    rail(s, "+12V", r13.pin(1))
     s.wire(r13.pin(2), jp.pin(1) if jp.pin(1)[1] < jp.pin(2)[1] else jp.pin(2))
     jlow = jp.pin(2) if jp.pin(1)[1] < jp.pin(2)[1] else jp.pin(1)
     s.wire(jlow, (x0 + 2, yc))
-    r10 = R(s, f"R{201+i}", "10k 0.5W", x0 + 10, yc, rot=90)
+    r10 = R(s, f"R{201+i}", "5.6k 0.5W", x0 + 10, yc, rot=90)
     s.wire((x0 - 6, yc), (x0 + 2, yc))
     s.junction((x0 + 2, yc))
     s.wire((x0 + 2, yc), r10.pin(1))
     n1 = (r10.pin(2)[0] + 4, yc)
     s.wire(r10.pin(2), n1)
     s.junction(n1)
-    r11 = R(s, f"R{211+i}", "3.3k", n1[0], yc + 9)
+    r11 = R(s, f"R{211+i}", "1.8k", n1[0], yc + 9)
     s.wire(n1, r11.pin(1))
     gnd(s, r11.pin(2))
-    c10 = C(s, f"C{201+i}", "470nF", n1[0] + 8, yc + 9)
+    c10 = C(s, f"C{201+i}", "1uF 50V", n1[0] + 8, yc + 9)
     s.wire(n1, (c10.pin(1)[0], yc))
     s.junction((c10.pin(1)[0], yc))
     s.wire((c10.pin(1)[0], yc), c10.pin(1))
@@ -717,8 +741,13 @@ s.text((20, 18), "6x G5LE-1 24V relays, 2N7002K low-side drivers, SS34 flyback."
                  " GEN/MAINS contactor contacts are VOLT-FREE; panel wiring must"
                  " also hardware-interlock the contactors.", size=2.0)
 
-j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 4, 25, 90)
-s.text((14, 30), "J8: 1=FUEL 2=START 3=HORN 4=PREHEAT (switched +24V)", size=1.5)
+j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 5, 25, 90)
+s.text((12, 26), "J8 pin 1 = OUT_COM, the common contact supply. The INSTALLER"
+                 " feeds it from a fused source; it is NOT this board's rail, so"
+                 " no field current crosses the PCB.", size=1.5)
+s.text((12, 36), "J8: 1=OUT_COM 2=FUEL(ECU enable) 3=START 4=AUX1 5=AUX2", size=1.5)
+s.text((12, 40), "START is PILOT ONLY - drive an external starter relay coil."
+                 " A 12V starter solenoid pulls 20-40A; these contacts are 8A DC.", size=1.5)
 j15 = conn(s, "J15", "Screw_Terminal_CONTACTOR", 4, 25, 150)
 s.text((14, 140), "J15: GEN COM/NO, MAINS COM/NO (volt-free contactor pairs).", size=1.5)
 s.text((14, 144), "Separate block from J8: the two contactor coil circuits ride", size=1.5)
@@ -730,8 +759,11 @@ RELAYS = [
     ("START",   "K2", "Q61", "R62", "R63", "D61", "RLY_START",   90.0,  145.0, False),
     ("GEN",     "K3", "Q62", "R110", "R111", "D62", "RLY_GEN",   90.0,  220.0, True),
     ("MAINS",   "K4", "Q63", "R67", "R68", "D63", "RLY_MAINS",   230.0, 70.0,  True),
-    ("HORN",    "K5", "Q64", "R69", "R75", "D64", "RLY_HORN",    230.0, 145.0, False),
-    ("PREHEAT", "K6", "Q65", "R76", "R77", "D65", "RLY_PREHEAT", 230.0, 220.0, False),
+    # K5/K6 are configurable (default horn / preheat) — the engine ECU owns
+    # the cold-start aid on a CRDi engine, so a fixed PREHEAT channel would
+    # often go unused
+    ("AUX1",    "K5", "Q64", "R69", "R75", "D64", "RLY_AUX1",    230.0, 145.0, False),
+    ("AUX2",    "K6", "Q65", "R76", "R77", "D65", "RLY_AUX2",    230.0, 220.0, False),
 ]
 for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
     q = s.place("Transistor_FET:2N7002K", qref, "2N7002K 60V", (x0, yc), rot=0,
@@ -753,15 +785,15 @@ for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
     # NC = 4 (top-mid). SME review catch: the earlier 1/2-coil 3/4/5-contact
     # assumption netted every relay wrong.
     # Place so the coil-switched pin 2 sits directly above the FET drain.
-    k = s.place("Relay:G5LE-1", kref, "G5LE-1 24V", (dpin[0] + 5.08, yc - 18),
+    k = s.place("Relay:G5LE-1", kref, "G5LE-1 12V", (dpin[0] + 5.08, yc - 18),
                 ref_at=(dpin[0] - 6, yc - 34), val_at=(dpin[0] - 6, yc - 31.5))
     coil_sw = k.pin(2)    # bottom-left coil pin, directly above drain
-    coil_hot = k.pin(5)   # top-left coil pin -> +24V_SW
+    coil_hot = k.pin(5)   # top-left coil pin -> +12V_SW
     s.wire(coil_sw, dpin)
     rowh = snap(coil_hot[1] - 4)
-    s.glabel((coil_hot[0] - 14, rowh), "+24V_SW", rot=180)
+    s.glabel((coil_hot[0] - 14, rowh), "+12V_SW", rot=180)
     s.wire((coil_hot[0] - 14, rowh), (coil_hot[0], rowh), coil_hot)
-    # flyback vertical beside the coil column: K up to the +24V_SW row,
+    # flyback vertical beside the coil column: K up to the +12V_SW row,
     # A down to the coil-switch/drain run
     xf = snap(coil_hot[0] - 7.62)
     dfly_ = s.place("Device:D_Schottky", dfly, "SS34", (xf, yc - 18), rot=270,
@@ -786,11 +818,11 @@ for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
         s.label((lx, ycom), f"{name}_COM")
         s.label((lx, yno), f"{name}_NO")
     else:
-        s.glabel((lx, ycom), "+24V_SW")
+        s.label((lx, ycom), "OUT_COM")
         s.label((lx, yno), f"{name}_OUT")
 
-# terminal wiring: J8 = switched +24V outputs, J15 = volt-free contact pairs
-for i, net in enumerate(["FUEL_OUT", "START_OUT", "HORN_OUT", "PREHEAT_OUT"]):
+# terminal wiring: J8 = common supply + 4 dry NO outputs, J15 = volt-free pairs
+for i, net in enumerate(["OUT_COM", "FUEL_OUT", "START_OUT", "AUX1_OUT", "AUX2_OUT"]):
     tp = j8.pin(i + 1)
     s.wire(tp, (tp[0] + 4, tp[1]))
     s.label((tp[0] + 4, tp[1]), net)
@@ -799,8 +831,9 @@ for i, net in enumerate(["GEN_COM", "GEN_NO", "MAINS_COM", "MAINS_NO"]):
     s.wire(tp, (tp[0] + 4, tp[1]))
     s.label((tp[0] + 4, tp[1]), net)
 # map relay-side labels to terminal-side labels (same names where needed)
-s.text((20, 290), "Note: FUEL relay = run-enable (K1). In J1939 mode it drives the"
-                  " engine-ECU enable input; in legacy mode the fuel solenoid.", size=1.5)
+s.text((20, 290), "K1 FUEL = run-enable: drives the engine-ECU enable input (CRDi)"
+                  " or the fuel solenoid (legacy). K5/K6 AUX are configurable,"
+                  " defaulting to horn and preheat.", size=1.5)
 
 # =================================================================
 # Sheet 6 — COMMS (CAN, RS485, EEPROM)
@@ -982,7 +1015,7 @@ PINMAP = {
     "PD0": ("CAN_RX", "input"), "PD1": ("CAN_TX", "output"),
     "PD2": ("RLY_FUEL", "output"), "PD3": ("RLY_START", "output"),
     "PD4": ("RLY_GEN", "output"), "PD5": ("RLY_MAINS", "output"),
-    "PD6": ("RLY_HORN", "output"), "PD7": ("RLY_PREHEAT", "output"),
+    "PD6": ("RLY_AUX1", "output"), "PD7": ("RLY_AUX2", "output"),
     "PD8": ("RS485_TX", "output"), "PD9": ("RS485_RX", "input"), "PD10": ("RS485_DE", "output"),
     "PE0": ("DIN1", "input"), "PE1": ("DIN2", "input"), "PE2": ("DIN3", "input"),
     "PE3": ("DIN4", "input"), "PE4": ("DIN5", "input"), "PE5": ("DIN6", "input"),
@@ -1275,7 +1308,10 @@ FP_BY_REF = {
     "D1":  "Diode_SMD:D_SMC",                              # SMCJ33CA
     "D2":  "Diode_SMD:D_SOD-123",                          # BZT52C15
     "Q1":  "Package_TO_SOT_SMD:TO-252-2",                  # SQD50P06 DPAK: 1=G, 2=D(tab), 3=S
-    "C1":  "Capacitor_THT:CP_Radial_D10.0mm_P5.00mm",      # 100uF 63V
+    "C1":  "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",       # 100uF 35V
+    "C9":  "Capacitor_THT:CP_Radial_D12.5mm_P5.00mm",      # 2200uF 25V crank
+                                                           # hold-up bank
+    "D3":  "Diode_SMD:D_SMA",                              # SS34 blocking
     "U1":  "Package_SO:SOIC-8-1EP_3.9x4.9mm_P1.27mm_EP2.514x3.2mm_ThermalVias",  # LM5164 DDA (HSOP-8)
     "L2":  "Inductor_SMD:L_12x12mm_H8mm",                  # 33uH 2A shielded (e.g. WE-PD 1245)
     "C5":  "Capacitor_SMD:C_1210_3225Metric",              # 22uF 25V
@@ -1293,7 +1329,7 @@ FP_BY_REF = {
     "C30": "Capacitor_SMD:C_0805_2012Metric",              # 100nF 100V (MPU coupling)
     "DS1": "LED_SMD:LED_0805_2012Metric",
     # analog / misc power parts
-    "R88": "Resistor_THT:R_Axial_Power_L25.0mm_W9.0mm_P30.48mm",  # 220R 5W cement
+    "R88": "Resistor_THT:R_Axial_Power_L20.0mm_W6.4mm_P25.40mm",  # 120R 3W axial
     "C91": "Capacitor_SMD:C_0805_2012Metric",              # 10uF VREF_MID
     # connectors — field power/AC/relay/CT on MKDS-3 (heavier, 400V-class),
     # signal-level on MKDS-1,5
@@ -1308,7 +1344,9 @@ FP_BY_REF = {
     "J5":  _MKDS3.format(n=8),
     "J6":  _MKDS3.format(n=8),
     "J7":  _MKDS3.format(n=6),
-    "J8":  _MKDS3.format(n=4),
+    # no 5-pole MKDS exists; a 6-pole body carries the 5 wired poles and
+    # leaves pole 6 spare
+    "J8":  _MKDS3.format(n=6),
     "J15": _MKDS3.format(n=8),
     "J9":  _MKDS15.format(n=3),
     "J10": _MKDS15.format(n=3),
@@ -1352,12 +1390,14 @@ def footprint_for(ref, value, lib_id):
             return "Resistor_SMD:R_2512_6332Metric"        # 0.05R shunt, 3W-class 2512
         if "0.5W" in value:
             return "Resistor_SMD:R_1210_3225Metric"        # DIN divider top, surge margin
+        if "3W" in value:
+            return "Resistor_THT:R_Axial_Power_L20.0mm_W6.4mm_P25.40mm"
         if "1206" in value:
             return "Resistor_SMD:R_1206_3216Metric"        # AC-sense chain, 200V/element
     if lib_id == "Device:C" and "100V" in value:
         return "Capacitor_SMD:C_0805_2012Metric"
     if lib_id == "Device:FerriteBead" and "3A" in value:
-        return "Inductor_SMD:L_0805_2012Metric"            # FB1, series element in +24V feed
+        return "Inductor_SMD:L_0805_2012Metric"            # FB1, series element in +12V feed
     return FP_BY_LIBID.get(lib_id)
 
 

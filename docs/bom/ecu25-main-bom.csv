@@ -1,17 +1,19 @@
 Qty,Value,Package,Part / spec,Refs,Subsystem,Note
-1,100uF 63V,radial D10.0 / P5.00,100 uF 63 V radial,C1,Power,"input bulk — 63 V, not 50 V: the rail clamps at ~53 V"
-1,2.2uF 100V,1210,,C3,Power,X7R 100 V 1210 — buck input
+1,100uF 35V,radial D8.0 / P3.50,100 uF 35 V radial,C1,Power,input bulk on the battery side of D3
+1,2.2uF 50V,1210,,C3,Power,X7R 50 V — buck input bypass
 2,22uF 25V,1210,,C5 C6,Power,
-1,SMCJ33CA,SMC,SMCJ33CA,D1,Power,bidirectional input TVS
-1,BZT52C15,SOD-123,BZT52C15,D2,Power,gate zener
-1,SMBJ33CA,SMB,SMBJ33CA,D80,Power,"bidirectional, +24V_SW local clamp"
+1,2200uF 25V,radial D12.5 / P5.00,2200 uF 25 V radial,C9,Power,"crank hold-up: with the backlight shed it carries the logic for >50 ms down to the 6.5 V UVLO, so the MCU does not reset while the starter drags the battery down"
+1,SMCJ16CA,SMC,SMCJ16CA,D1,Power,"bidirectional input TVS, 12 V system — clamps ~26 V"
+1,BZT52C12,SOD-123,BZT52C12,D2,Power,"gate zener, holds V_GS inside the P-FET rating"
+1,SMBJ16CA,SMB,SMBJ16CA,D80,Power,"bidirectional, +12V_SW local clamp"
 1,5A blade,mini blade fuse holder,Mini blade fuse 5 A + Keystone 3568 holder,F1,Power,
-1,PTC 1.1A 72V,"radial PPTC, 5.1mm pitch",RXEF110,F2,Power,"1.1 A hold / 2.2 A trip PPTC, 72 V radial — it must stand off the ~53 V load-dump clamp while tripped, and no chip PPTC does that at 1.1 A hold"
-1,600R@100MHz 3A,0805,BLM21PG600SN1,FB1,Power,"ferrite bead 0805, 3 A — series in the +24 V feed"
+1,PTC 1.1A 72V,"radial PPTC, 5.1mm pitch",RXEF110,F2,Power,"1.1 A hold / 2.2 A trip PPTC, radial. Feeds only the six relay coils (200 mA) and the D+ excitation (100 mA) — field loads are fed by the installer through J8 pin 1, so no field current crosses this board"
+1,600R@100MHz 3A,0805,BLM21PG600SN1,FB1,Power,"ferrite bead 0805, 3 A — series in the +12 V feed"
 1,Screw_Terminal_BATT,screw terminal 5.08mm x02 (power),,J1,Power,
 1,33uH 2A shielded,12x12x8 shielded,"33 uH 2 A shielded, 12x12",L2,Power,e.g. Wurth WE-PD 7447779233
 1,SQD50P06-15L,DPAK,SQD50P06-15L,Q1,Power,"DPAK P-FET, reverse-polarity"
-1,23.2k,0603,,R3,Power,23.2k (UVLO 8V)
+1,30.1k 1%,0603,,R3,Power,"buck UVLO: turn-on ≈ 6.5 V, low enough to ride a 12 V crank dip (30.1k 1% (UVLO 6.5V))"
+1,49.9k 1%,0603,,R4,Power,buck RON: sets fsw ≈ 300 kHz from a 12 V input (49.9k 1% (RON 300kHz))
 1,38.3k 1%,0603,,R5,Power,
 1,12.1k 1%,0603,,R6,Power,
 1,LM5164DDA-Q1,HSOP-8 (thermal pad),LM5164DDA-Q1,U1,Power,"100 V synchronous buck, HSOP-8 with thermal pad"
@@ -24,7 +26,8 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 5,4.7k,0603,,R26 R27 R28 R87 R187,Analog inputs,
 1,90.9k 1%,0603,,R71,Analog inputs,
 2,100k 1%,0603,,R85 R185,Analog inputs,
-1,220R 5W,axial power L25.0 / pitch 30.48,,R88,Analog inputs,"5 W axial cement — D+ excitation, dissipates 2.6 W in fault"
+2,22k 1%,0603,,R86 R186,Analog inputs,
+1,120R 3W,axial power L20.0 / pitch 25.40,,R88,Analog inputs,"3 W axial — D+ excitation, ~1.2 W continuous in a charge-fail"
 2,LM358,SOIC-8,LM358DR,U3 U4,Analog inputs,U3: sender current sources 1-2; U4: sender current source 3 + spare
 9,22nF C0G,0603,,C40 C41 C42 C43 C44 C45 C50 C51 C52,AC sensing,"C0G/NP0 — anti-alias filters, needs low drift"
 3,SMBJ6.0CA,SMB,SMBJ6.0CA,D50 D51 D52,AC sensing,bidirectional TVS at the CT terminals
@@ -32,24 +35,25 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,Screw_Terminal_MAINS,screw terminal 5.08mm x08 (power),,J6,AC sensing,
 1,Screw_Terminal_CT,screw terminal 5.08mm x06 (power),,J7,AC sensing,
 3,0.05R 3W,2512,,R50 R55 R59,AC sensing,"3 W 2512 current-sense (Kelvin pads), 1 %"
+3,6.8k 1%,0603,,R53 R58 R66,AC sensing,1 % — phase-matches the AC voltage channel; PF accuracy depends on it (6.8k 1% (phase match))
 1,47R,0603,,R92,AC sensing,
 24,330k 1206,1206,,R300 R301 R302 R303 R310 R311 R312 R313 R320 R321 R322 R323 R330 R331 R332 R333 R340 R341 R342 R343 R350 R351 R352 R353,AC sensing,"200 V element rating, 1 % — AC divider chain"
 6,5.62k 1%,0603,,R304 R314 R324 R334 R344 R354,AC sensing,
 3,MCP6002,SOIC-8,MCP6002-I/SN,U8 U9 U10,AC sensing,U8: VREF_MID buffer; U9: CT amps 1-2; U10: CT amp 3 + spare
-8,470nF,0603,,C201 C202 C203 C204 C205 C206 C207 C208,Digital inputs + MPU,
+1,100nF 100V,0805,,C30,Digital inputs + MPU,X7R 100 V — MPU AC coupling
+8,1uF 50V,0603,,C201 C202 C203 C204 C205 C206 C207 C208,Digital inputs + MPU,"DIN debounce, tau approximately 1.4 ms with the 5.6k/1.8k divider"
 8,BAT54S,SOT-23,BAT54S,D10 D11 D12 D13 D14 D15 D16 D17,Digital inputs + MPU,"dual series Schottky clamp, SOT-23"
 1,BAV99,SOT-23,BAV99,D30,Digital inputs + MPU,"dual switching diode, SOT-23"
 1,Screw_Terminal_DIN,screw terminal 5.08mm x10 (signal),,J2,Digital inputs + MPU,
 1,Screw_Terminal_MPU,screw terminal 5.08mm x02 (signal),,J4,Digital inputs + MPU,
 8,GND-side sw,solder jumper,,JP4 JP5 JP6 JP7 JP8 JP9 JP10 JP11,Digital inputs + MPU,
 1,1M,0603,,R36,Digital inputs + MPU,"MPU comparator hysteresis, ±79 mV with the 100 k bias pair (1M (hyst +/-80mV))"
-16,10k 0.5W,1210,,R201 R202 R203 R204 R205 R206 R207 R208 R231 R232 R233 R234 R235 R236 R237 R238,Digital inputs + MPU,0.5 W / 1210 — DIN divider top leg
-8,3.3k,0603,,R211 R212 R213 R214 R215 R216 R217 R218,Digital inputs + MPU,
+16,5.6k 0.5W,1210,,R201 R202 R203 R204 R205 R206 R207 R208 R231 R232 R233 R234 R235 R236 R237 R238,Digital inputs + MPU,"0.5 W / 1210 — DIN divider top leg, sized for 1.6 mA wetting at 12 V"
+8,1.8k,0603,,R211 R212 R213 R214 R215 R216 R217 R218,Digital inputs + MPU,
 1,LM2903,SOIC-8,LM2903DR,U5,Digital inputs + MPU,MPU comparator
-6,SS34,SMA,SS34,D60 D61 D62 D63 D64 D65,Relay drivers,"3 A Schottky flyback, SMA"
-1,Screw_Terminal_RELAY_OUT,screw terminal 5.08mm x04 (power),,J8,Relay drivers,
+1,Screw_Terminal_RELAY_OUT,screw terminal 5.08mm x06 (power),,J8,Relay drivers,
 1,Screw_Terminal_CONTACTOR,screw terminal 5.08mm x08 (power),,J15,Relay drivers,
-6,G5LE-1 24V,G5LE THT,G5LE-1-DC24,K1 K2 K3 K4 K5 K6,Relay drivers,"Omron 10 A SPDT, 24 V coil"
+6,G5LE-1 12V,G5LE THT,G5LE-1-DC12,K1 K2 K3 K4 K5 K6,Relay drivers,"Omron SPDT, 12 V coil (360 ohm / 33 mA). Contacts are PILOT DUTY: 8 A DC max, and a 12 V starter solenoid pulls 20-40 A"
 6,2N7002K 60V,SOT-23,2N7002K,Q60 Q61 Q62 Q63 Q64 Q65,Relay drivers,"60 V logic-level FET, relay driver"
 6,100R,0603,,R60 R62 R67 R69 R76 R110,Relay drivers,
 1,4.7nF,0603,,C70,Comms,
@@ -80,13 +84,12 @@ Qty,Value,Package,Part / spec,Refs,Subsystem,Note
 1,8MHz,HC-49SD,"8 MHz HC-49SD, CL 10 pF",Y1,MCU,HSE
 1,32.768kHz,3215 SMD,"32.768 kHz 3215, CL 6 pF",Y2,MCU,LSE / RTC
 1,Ribbon 20-way,IDC 2x10 latched,"2x10 IDC header, latched",J12,Display connector,display ribbon
-2,100nF 100V,0805,,C2 C30,"shared: Digital inputs + MPU, Power",X7R 100 V — MPU AC coupling
-25,100nF,0603,,C4 C20 C21 C22 C31 C60 C63 C64 C65 C66 C67 C71 C85 C86 C90 C92 C93 C96 C97 C100 C101 C102 C103 C104 C105,"shared: AC sensing, Analog inputs, Comms, Digital inputs + MPU, MCU, Power",
+26,100nF,0603,,C2 C4 C20 C21 C22 C31 C60 C63 C64 C65 C66 C67 C71 C85 C86 C90 C92 C93 C96 C97 C100 C101 C102 C103 C104 C105,"shared: AC sensing, Analog inputs, Comms, Digital inputs + MPU, MCU, Power",
 3,2.2uF,0603,,C7 C78 C79,"shared: MCU, Power",
 2,10uF,0805,,C8 C91,"shared: AC sensing, Power",
+7,SS34,SMA,SS34,D3 D60 D61 D62 D63 D64 D65,"shared: Power, Relay drivers","3 A Schottky flyback, SMA"
 11,BAV199,SOT-23,BAV199,D20 D21 D22 D40 D41 D42 D43 D44 D45 D81 D82,"shared: AC sensing, Analog inputs","low-leakage dual diode, SOT-23"
-11,100k,0603,,R1 R2 R4 R31 R32 R61 R63 R68 R75 R77 R111,"shared: Digital inputs + MPU, Power, Relay drivers",R4 in this line is the buck RON resistor: 100 k sets fsw ≈ 300 kHz (100k (RON 300kHz))
+10,100k,0603,,R1 R2 R31 R32 R61 R63 R68 R75 R77 R111,"shared: Digital inputs + MPU, Power, Relay drivers",
 13,1k,0603,,R18 R19 R23 R24 R25 R29 R99 R305 R315 R325 R335 R345 R355,"shared: AC sensing, Analog inputs, MCU",
 19,10k,0603,,R30 R33 R34 R35 R37 R38 R80 R93 R95 R96 R97 R221 R222 R223 R224 R225 R226 R227 R228,"shared: AC sensing, Comms, Digital inputs + MPU, MCU",
 9,10k 1%,0603,,R51 R52 R56 R57 R64 R65 R70 R90 R91,"shared: AC sensing, Analog inputs",1 % — CT gain pairs (1 + R52/R51 = 2) and the VREF divider
-5,6.8k 1%,0603,,R53 R58 R66 R86 R186,"shared: AC sensing, Analog inputs",1 % — phase-matches the AC voltage channel; PF accuracy depends on it (6.8k 1% (phase match))
