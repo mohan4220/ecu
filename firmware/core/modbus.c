@@ -153,6 +153,7 @@ static bool apply_hold(modbus_t *mb, uint16_t addr, uint16_t val)
     case 0: /* mode */
         if (val > 3) return false;
         mb->hold[0] = val;
+        mb->mode_from_remote = true;
         return true;
     case 1: /* remote start */
         if (val > 1) return false;

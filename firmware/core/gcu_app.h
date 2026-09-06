@@ -22,6 +22,7 @@ typedef struct {
      * contactor has been commanded open (saturating). */
     uint32_t gen_open_ticks;
     uint32_t mains_open_ticks;
+    bool backlight_shed; /* latched by hysteresis, see gcu_app.c */
 } gcu_app_t;
 
 void gcu_app_init(gcu_app_t *app);

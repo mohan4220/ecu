@@ -65,6 +65,11 @@ typedef struct {
     /* latched one-shot commands, cleared by the app once consumed */
     bool     cmd_alarm_reset;
     bool     cmd_lamp_test;
+    /* Register 0 defaults to AUTO so a master reading it sees something
+     * sensible, but until a master actually WRITES it the panel switch is in
+     * charge. Without this the default silently overrode the front panel the
+     * moment the runtime was wired up. */
+    bool     mode_from_remote;
     /* diagnostics */
     uint32_t rx_frames;
     uint32_t crc_errors;

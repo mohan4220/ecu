@@ -2,9 +2,13 @@
  * test_all.c — unit + scenario tests for the pure logic modules.
  * Plain C, no framework: CHECK() prints and counts failures.
  */
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "../core/ac_sense.h"
+#include "../core/sensors.h"
+#include "../core/ecu_main.h"
 #include "../core/gcu_app.h"
 #include "../core/j1939.h"
 #include "../core/modbus.h"
@@ -980,6 +984,506 @@ static void test_batt_high_trips_on_runaway_regulator(void)
     CHECK(out.aux1);           /* horn follows any unacknowledged alarm */
 }
 
+/* ---------------------------------------------------------------- ac_sense */
+
+/* Synthesise one measurement window of three-phase mains and push it through
+ * the sampler. Voltages are L-N RMS, current is per-phase RMS, phi is the
+ * current's lag in degrees (positive = inductive). */
+static void ac_feed(ac_sense_t *ac, float v_rms, float i_rms, float hz,
+                    float phi_deg, int windows)
+{
+    const float lsb = 3.3f / 4095.0f;
+    float v_cnt = v_rms * 1.41421356f / (lsb * 235.9f); /* peak, in counts */
+    float i_cnt = i_rms * 1.41421356f / (lsb / 0.1f * 10.0f);
+    float phi = phi_deg * 3.14159265f / 180.0f;
+    float w = 2.0f * 3.14159265f * hz / (float)ac->cal.sample_hz;
+
+    uint32_t total = (uint32_t)ac->cal.window * (uint32_t)windows;
+    for (uint32_t k = 0; k < total; k++) {
+        uint16_t raw[AC_CH_COUNT];
+        for (int ph = 0; ph < 3; ph++) {
+            float th = w * (float)k - (float)ph * 2.0944f; /* 120 degrees */
+            float v = 2048.0f + v_cnt * sinf(th);
+            float i = 2048.0f + i_cnt * sinf(th - phi);
+            raw[AC_GEN_L1 + ph] = (uint16_t)(v + 0.5f);
+            raw[AC_MAINS_L1 + ph] = (uint16_t)(v + 0.5f);
+            raw[AC_I_L1 + ph] = (uint16_t)(i + 0.5f);
+        }
+        ac_sense_push(ac, raw);
+    }
+}
+
+static void test_ac_sense_rms_and_frequency(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);   /* 50:5 CTs */
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+
+    ac_feed(&ac, 230.0f, 34.8f, 50.0f, 0.0f, 2);
+    CHECK(ac.valid);
+    for (int i = 0; i < 3; i++) {
+        CHECK(fabsf(ac.out.gen_v[i] - 230.0f) < 2.0f);
+        CHECK(fabsf(ac.out.mains_v[i] - 230.0f) < 2.0f);
+        CHECK(fabsf(ac.out.load_a[i] - 34.8f) < 0.5f);
+    }
+    CHECK(fabsf(ac.out.gen_hz - 50.0f) < 0.1f);
+    CHECK(fabsf(ac.out.mains_hz - 50.0f) < 0.1f);
+
+    /* 60 Hz: the window is a whole number of cycles there too. */
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 10.0f, 60.0f, 0.0f, 2);
+    CHECK(fabsf(ac.out.gen_hz - 60.0f) < 0.1f);
+    CHECK(fabsf(ac.out.gen_v[0] - 230.0f) < 2.0f);
+
+    /* Off-nominal frequency must actually move the reading — a zero-crossing
+     * counter without interpolation quantises to 10 Hz steps here. */
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 10.0f, 47.5f, 0.0f, 2);
+    CHECK(fabsf(ac.out.gen_hz - 47.5f) < 0.2f);
+}
+
+static void test_ac_sense_power_and_pf(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+
+    /* Unity PF: P = 3 * 230 * 20 = 13.8 kW. */
+    ac_feed(&ac, 230.0f, 20.0f, 50.0f, 0.0f, 2);
+    CHECK(fabsf(ac.out.real_power_w - 13800.0f) < 200.0f);
+    CHECK(fabsf(ac.out.power_factor - 1.0f) < 0.02f);
+
+    /* 0.8 lagging, the load a genset actually sees. */
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 20.0f, 50.0f, 36.87f, 2);
+    CHECK(fabsf(ac.out.power_factor - 0.8f) < 0.02f);
+    CHECK(fabsf(ac.out.real_power_w - 11040.0f) < 250.0f);
+
+    /* Reverse power: current 180 degrees out. The sign must survive — this
+     * is how a set motoring off the mains is detected. */
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 20.0f, 50.0f, 180.0f, 2);
+    CHECK(ac.out.real_power_w < -13000.0f);
+    CHECK(fabsf(ac.out.power_factor - 1.0f) < 0.02f);
+}
+
+static void test_ac_sense_dead_source(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+
+    /* Bias only, plus one count of dither: a dead bus must read 0 V and
+     * 0 Hz, never a frequency manufactured out of ADC noise. */
+    for (uint32_t k = 0; k < cal.window * 2u; k++) {
+        uint16_t raw[AC_CH_COUNT];
+        for (int c = 0; c < AC_CH_COUNT; c++) {
+            raw[c] = (uint16_t)(2048 + (int)(k % 3) - 1);
+        }
+        ac_sense_push(&ac, raw);
+    }
+    CHECK(ac.valid);
+    CHECK(ac.out.gen_v[0] == 0.0f);
+    CHECK(ac.out.gen_hz == 0.0f);
+    CHECK(ac.out.mains_hz == 0.0f);
+    CHECK(ac.out.real_power_w == 0.0f);
+    CHECK(ac.out.power_factor == 0.0f);
+}
+
+static void test_ac_sense_tolerates_bias_drift(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+
+    /* VREF_MID sitting 40 counts (32 mV) off nominal must not appear as
+     * voltage: the DC term is measured, not assumed. */
+    const float lsb = 3.3f / 4095.0f;
+    float v_cnt = 230.0f * 1.41421356f / (lsb * 235.9f);
+    float w = 2.0f * 3.14159265f * 50.0f / (float)cal.sample_hz;
+    for (uint32_t k = 0; k < cal.window * 3u; k++) {
+        uint16_t raw[AC_CH_COUNT];
+        for (int ph = 0; ph < 3; ph++) {
+            float th = w * (float)k - (float)ph * 2.0944f;
+            uint16_t v = (uint16_t)(2088.0f + v_cnt * sinf(th) + 0.5f);
+            raw[AC_GEN_L1 + ph] = v;
+            raw[AC_MAINS_L1 + ph] = v;
+            raw[AC_I_L1 + ph] = 2088;
+        }
+        ac_sense_push(&ac, raw);
+    }
+    CHECK(fabsf(ac.out.gen_v[0] - 230.0f) < 2.0f);
+    CHECK(fabsf(ac.out.gen_hz - 50.0f) < 0.1f);
+    CHECK(ac.out.load_a[0] == 0.0f);       /* no current, despite the offset */
+    CHECK(ac.out.real_power_w == 0.0f);
+}
+
+static void test_ac_sense_fills_inputs(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+
+    gcu_inputs_t in;
+    memset(&in, 0, sizeof(in));
+    in.gen_v[0] = 999.0f;
+    ac_sense_fill(&ac, &in);
+    CHECK(in.gen_v[0] == 999.0f);   /* nothing measured yet: left alone */
+
+    ac_feed(&ac, 230.0f, 20.0f, 50.0f, 36.87f, 2);
+    ac_sense_fill(&ac, &in);
+    CHECK(fabsf(in.gen_v[0] - 230.0f) < 2.0f);
+    CHECK(fabsf(in.gen_hz - 50.0f) < 0.1f);
+    CHECK(fabsf(in.power_factor - 0.8f) < 0.02f);
+    CHECK(in.real_power_w > 10000.0f);
+
+    /* And the Modbus layer must now publish something other than zero. */
+    gcu_app_t app;
+    gcu_app_init(&app);
+    uint16_t iregs[MODBUS_IREG_COUNT];
+    modbus_publish(&in, &app, 0, iregs);
+    CHECK(iregs[19] > 100 && iregs[19] < 120);   /* ~11.0 kW in 0.1 kW steps */
+    CHECK(iregs[20] > 780 && iregs[20] < 820);   /* ~0.80 in 0.001 steps     */
+}
+
+/* The crank hold-up is sized for ~1 W, which assumes the backlight is off
+ * while the starter drags the battery down. That assumption has to be code,
+ * not a note in the calc sheet. */
+static void test_backlight_sheds_during_crank(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.battery_v = 12.6f;
+    in.mains_v[0] = in.mains_v[1] = in.mains_v[2] = 240.0f;
+    in.mains_hz = 50.0f;
+
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 80);      /* normal */
+
+    /* Start manually and run until the starter engages. */
+    app.cfg.preheat_ms = 0;
+    in.mode_auto = false;
+    in.key_start = true;
+    for (int i = 0; i < 50 && !out.starter; i++) {
+        gcu_app_tick(&app, &in, &out);
+        in.key_start = false;
+    }
+    CHECK(out.starter);
+    CHECK(out.backlight_pct == 0);       /* shed before the sag, not after */
+
+    /* Sag arrives; still shed. */
+    in.battery_v = 8.5f;
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 0);
+}
+
+static void test_backlight_shed_has_hysteresis(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.mains_v[0] = in.mains_v[1] = in.mains_v[2] = 240.0f;
+    in.mains_hz = 50.0f;
+
+    in.battery_v = 12.6f;
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 80);
+
+    in.battery_v = 9.8f;                 /* flat battery, no starter */
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 0);
+
+    in.battery_v = 10.6f;                /* inside the hysteresis band */
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 0);       /* must not flicker back on */
+
+    in.battery_v = 11.4f;
+    gcu_app_tick(&app, &in, &out);
+    CHECK(out.backlight_pct == 80);
+}
+
+/* ----------------------------------------------------------------- sensors */
+
+static void test_sensor_curves(void)
+{
+    bool ok;
+
+    /* Oil: table endpoints and an interpolated midpoint. */
+    CHECK(fabsf(sensor_lookup(&SENSOR_OIL_VDO_10BAR, 10.0f, &ok) - 0.0f) < 0.01f);
+    CHECK(ok);
+    CHECK(fabsf(sensor_lookup(&SENSOR_OIL_VDO_10BAR, 184.0f, &ok) - 10.0f) < 0.01f);
+    CHECK(ok);
+    float mid = sensor_lookup(&SENSOR_OIL_VDO_10BAR, 92.5f, &ok);
+    CHECK(ok && mid > 4.0f && mid < 5.5f);
+
+    /* A shorted sender (below the table) and an open one (above it) are
+     * INVALID, not 0 bar — 0 bar would look like a real low-oil shutdown. */
+    (void)sensor_lookup(&SENSOR_OIL_VDO_10BAR, 2.0f, &ok);
+    CHECK(!ok);
+    (void)sensor_lookup(&SENSOR_OIL_VDO_10BAR, 5000.0f, &ok);
+    CHECK(!ok);
+
+    /* But a sender resting exactly on an end point, or a hair outside it,
+     * is a working sender at the end of its range — not a fault. */
+    CHECK(fabsf(sensor_lookup(&SENSOR_OIL_VDO_10BAR, 9.99f, &ok)) < 0.01f);
+    CHECK(ok);
+    (void)sensor_lookup(&SENSOR_OIL_VDO_10BAR, 200.0f, &ok);
+    CHECK(ok);
+
+    /* NTC: resistance falls as temperature rises. */
+    float cold = sensor_lookup(&SENSOR_TEMP_VDO_NTC, 323.0f, &ok);
+    float hot = sensor_lookup(&SENSOR_TEMP_VDO_NTC, 22.0f, &ok);
+    CHECK(cold < hot);
+    CHECK(fabsf(cold - 40.0f) < 0.01f && fabsf(hot - 120.0f) < 0.01f);
+
+    /* Fuel: 0 ohm is full on this sender. */
+    CHECK(fabsf(sensor_lookup(&SENSOR_FUEL_0_190, 0.0f, &ok) - 100.0f) < 0.01f);
+    CHECK(fabsf(sensor_lookup(&SENSOR_FUEL_0_190, 190.0f, &ok) - 0.0f) < 0.01f);
+}
+
+static void test_sensor_scaling(void)
+{
+    const float lsb = 3.3f / 4095.0f;
+
+    /* Oil channel: 8.06 mA through 184 ohm is 1.483 V = 1840 counts. */
+    uint16_t counts = (uint16_t)(184.0f * 0.00806f / lsb + 0.5f);
+    float r = sensor_ohms(counts, lsb, 0.00806f);
+    CHECK(fabsf(r - 184.0f) < 1.0f);
+
+    /* Battery divider: 12.6 V through 100k/22k lands at 2.272 V. */
+    uint16_t bc = (uint16_t)((12.6f / 5.545f) / lsb + 0.5f);
+    float v = sensor_divider_v(bc, lsb, 5.545f);
+    CHECK(fabsf(v - 12.6f) < 0.02f);
+
+    /* A 118-tooth flywheel at 1500 rpm gives a 339 us tooth period. */
+    CHECK(fabsf(sensor_rpm(339, 118) - 1500.0f) < 5.0f);
+    CHECK(sensor_rpm(0, 118) == 0.0f);       /* stopped, not a divide by 0 */
+    CHECK(sensor_rpm(339, 0) == 0.0f);
+}
+
+static void test_din_debounce(void)
+{
+    din_debounce_t d;
+    din_init(&d, 0x00);
+
+    /* Three consecutive agreeing samples are needed to change state. */
+    CHECK(din_update(&d, 0x01, 3) == 0x00);
+    CHECK(din_update(&d, 0x01, 3) == 0x00);
+    CHECK(din_update(&d, 0x01, 3) == 0x01);
+
+    /* A bouncing contact must never get through: alternating samples reset
+     * the agreement counter, so the state holds. */
+    din_init(&d, 0x00);
+    for (int i = 0; i < 20; i++) {
+        uint8_t raw = (uint8_t)((i % 2) ? 0x01 : 0x00);
+        CHECK(din_update(&d, raw, 3) == 0x00);
+    }
+
+    /* Channels are independent: one bouncing input cannot hold up another. */
+    din_init(&d, 0x00);
+    din_update(&d, 0x03, 3);
+    din_update(&d, 0x01, 3);   /* bit 1 dropped out, bit 0 kept */
+    uint8_t out = din_update(&d, 0x01, 3);
+    CHECK(out == 0x01);
+}
+
+/* --------------------------------------------------------------- ecu_main */
+
+/* A fake board. The point of the function-pointer platform is that the whole
+ * runtime — conversion, debounce, scheduling, protocol servicing — runs here
+ * with no hardware at all. */
+static struct {
+    uint32_t ms;
+    uint16_t dc[PLAT_DC_COUNT];
+    uint8_t din;
+    uint32_t period_us;
+    bool key_start, key_stop, mode_auto;
+    gcu_outputs_t last_out;
+    uint8_t backlight;
+    int relay_calls;
+    uint32_t hours_saved;
+    /* AC waveform generator */
+    uint32_t k;
+    float mains_v_rms, gen_v_rms, i_rms;
+} fake;
+
+static uint32_t fk_millis(void) { return fake.ms; }
+static uint16_t fk_dc(int i) { return fake.dc[i]; }
+static uint8_t fk_din(void) { return fake.din; }
+static uint32_t fk_period(void) { return fake.period_us; }
+static void fk_relays(const gcu_outputs_t *o) { fake.last_out = *o; fake.relay_calls++; }
+static void fk_backlight(uint8_t p) { fake.backlight = p; }
+static bool fk_can_rx(j1939_frame_t *f) { (void)f; return false; }
+static void fk_can_tx(const j1939_frame_t *f) { (void)f; }
+static size_t fk_rs485_rx(uint8_t *b, size_t m) { (void)b; (void)m; return 0; }
+static void fk_rs485_tx(const uint8_t *b, size_t n) { (void)b; (void)n; }
+static void fk_save_hours(uint32_t h) { fake.hours_saved = h; }
+static bool fk_keys(bool *s, bool *t, bool *a)
+{
+    *s = fake.key_start; *t = fake.key_stop; *a = fake.mode_auto;
+    return true;
+}
+
+static bool fk_ac(uint16_t *out)
+{
+    /* Hand back at most a tick's worth per call so ecu_poll's drain loop is
+     * actually exercised rather than short-circuited. */
+    static int budget;
+    if (budget <= 0) { budget = 32; return false; }
+    budget--;
+    const float lsb = 3.3f / 4095.0f;
+    float gc = fake.gen_v_rms * 1.41421356f / (lsb * 235.9f);
+    float mc = fake.mains_v_rms * 1.41421356f / (lsb * 235.9f);
+    float ic = fake.i_rms * 1.41421356f / (lsb / 0.1f * 10.0f);
+    float w = 2.0f * 3.14159265f * 50.0f / 3200.0f;
+    for (int ph = 0; ph < 3; ph++) {
+        float th = w * (float)fake.k - (float)ph * 2.0944f;
+        out[AC_GEN_L1 + ph] = (uint16_t)(2048.0f + gc * sinf(th) + 0.5f);
+        out[AC_MAINS_L1 + ph] = (uint16_t)(2048.0f + mc * sinf(th) + 0.5f);
+        out[AC_I_L1 + ph] = (uint16_t)(2048.0f + ic * sinf(th) + 0.5f);
+    }
+    fake.k++;
+    return true;
+}
+
+static const ecu_platform_t FAKE_PLAT = {
+    .millis = fk_millis, .ac_sample = fk_ac, .dc_channel = fk_dc,
+    .din_raw = fk_din, .rpm_period_us = fk_period, .keys = fk_keys,
+    .relays = fk_relays, .backlight = fk_backlight,
+    .can_rx = fk_can_rx, .can_tx = fk_can_tx,
+    .rs485_rx = fk_rs485_rx, .rs485_tx = fk_rs485_tx,
+    .nvm_load_hours = NULL, .nvm_save_hours = fk_save_hours,
+};
+
+static void fake_reset(void)
+{
+    const float lsb = 3.3f / 4095.0f;
+    memset(&fake, 0, sizeof(fake));
+    /* A stopped engine has NO oil pressure. Faking 6.5 bar here made
+     * crank-disconnect fire on the first tick of cranking. */
+    fake.dc[PLAT_DC_OIL] = (uint16_t)(10.0f * 0.00806f / lsb);    /* 0 bar   */
+    fake.dc[PLAT_DC_FUEL] = (uint16_t)(95.0f * 0.00806f / lsb);   /* 50 %    */
+    fake.dc[PLAT_DC_TEMP] = (uint16_t)(197.0f * 0.00200f / lsb);  /* 60 C    */
+    fake.dc[PLAT_DC_VBAT] = (uint16_t)((12.6f / 5.545f) / lsb);
+    fake.dc[PLAT_DC_DPLUS] = (uint16_t)((0.5f / 5.545f) / lsb);
+    fake.din = 0x01;              /* e-stop healthy (closed), all else open */
+    /* Mains live, generator dead — the engine is stopped. Feeding generator
+     * volts here made the FSM's gen-frequency crank-disconnect fire on the
+     * first tick of cranking. */
+    fake.mains_v_rms = 240.0f;
+    fake.gen_v_rms = 0.0f;
+    fake.i_rms = 0.0f;
+}
+
+static void ecu_run_ms(ecu_t *e, uint32_t ms)
+{
+    for (uint32_t i = 0; i < ms; i++) {
+        fake.ms++;
+        ecu_poll(e);
+    }
+}
+
+static void test_ecu_runtime_converts_and_ticks(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    ecu_run_ms(&e, 500);
+
+    /* Senders converted through the curves, not passed through raw. */
+    CHECK(e.in.oil_pressure_valid && e.in.oil_pressure_bar < 0.2f);
+    CHECK(e.in.fuel_level_valid && fabsf(e.in.fuel_level_pct - 50.0f) < 3.0f);
+    CHECK(e.in.coolant_temp_valid && fabsf(e.in.coolant_temp_c - 60.0f) < 3.0f);
+    CHECK(fabsf(e.in.battery_v - 12.6f) < 0.1f);
+
+    /* AC pipeline reached the control inputs. */
+    CHECK(fabsf(e.in.mains_v[0] - 240.0f) < 3.0f);
+    CHECK(fabsf(e.in.mains_hz - 50.0f) < 0.2f);
+
+    /* Ticks ran at 10 ms and the outputs were driven every one of them. */
+    CHECK(e.ticks >= 48 && e.ticks <= 51);
+    CHECK(fake.relay_calls == (int)e.ticks);
+    CHECK(fake.backlight == 80);
+
+    /* E-stop is read INVERTED. Healthy field wiring reads not-pressed... */
+    CHECK(!e.in.emergency_stop);
+    /* ...and a cut wire reads as pressed, which is the whole point. */
+    fake.din = 0x00;
+    ecu_run_ms(&e, 100);
+    CHECK(e.in.emergency_stop);
+}
+
+static void test_ecu_runtime_starts_the_engine(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+    e.app.cfg.preheat_ms = 0;
+
+    ecu_run_ms(&e, 200);
+    CHECK(!fake.last_out.starter);
+
+    /* Panel start in MANUAL: the runtime must turn a key press into a crank
+     * without anything else changing. */
+    fake.mode_auto = false;
+    fake.key_start = true;
+    ecu_run_ms(&e, 30);
+    fake.key_start = false;
+    ecu_run_ms(&e, 100);
+    CHECK(fake.last_out.run_enable);
+    CHECK(fake.last_out.starter);
+    CHECK(fake.backlight == 0);   /* shed while cranking */
+
+    /* The engine fires: speed appears and oil pressure comes up with it.
+     * 118 teeth at 1500 rpm is a 339 us tooth period. */
+    fake.period_us = 339;
+    fake.dc[PLAT_DC_OIL] =
+        (uint16_t)(123.0f * 0.00806f / (3.3f / 4095.0f));   /* 6.5 bar */
+    fake.gen_v_rms = 240.0f;
+    ecu_run_ms(&e, 300);
+    CHECK(fabsf(e.in.rpm - 1500.0f) < 20.0f);
+    CHECK(!fake.last_out.starter);
+    CHECK(fake.last_out.run_enable);
+    CHECK(fake.backlight == 80);  /* restored once cranking ends */
+
+    /* And the Modbus image is being republished from the same data. */
+    CHECK(e.iregs[10] > 1400 && e.iregs[10] < 1600);
+}
+
+static void test_ecu_runtime_survives_millis_wrap(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    /* Park the clock just below the 32-bit rollover and run through it. A
+     * signed comparison here stalls the controller for 49 days. */
+    fake.ms = 0xFFFFFF00u;
+    e.last_tick_ms = fake.ms;
+    uint32_t before = e.ticks;
+    ecu_run_ms(&e, 600);
+    CHECK(e.ticks - before >= 55);
+}
+
 int main(void)
 {
     test_auto_start_on_mains_fail();
@@ -1016,6 +1520,19 @@ int main(void)
     test_modbus_short_buffer_is_slave_failure();
     test_batt_thresholds_are_12v();
     test_batt_high_trips_on_runaway_regulator();
+    test_ac_sense_rms_and_frequency();
+    test_ac_sense_power_and_pf();
+    test_ac_sense_dead_source();
+    test_ac_sense_tolerates_bias_drift();
+    test_ac_sense_fills_inputs();
+    test_backlight_sheds_during_crank();
+    test_backlight_shed_has_hysteresis();
+    test_sensor_curves();
+    test_sensor_scaling();
+    test_din_debounce();
+    test_ecu_runtime_converts_and_ticks();
+    test_ecu_runtime_starts_the_engine();
+    test_ecu_runtime_survives_millis_wrap();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

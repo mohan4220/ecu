@@ -20,6 +20,7 @@ hardware/kicad/ecu25-main/drc.rpt
 
 # Firmware build
 firmware/build/
+firmware/target/stm32f4/build/
 
 # Editor / OS
 .vscode/

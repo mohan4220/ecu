@@ -1,0 +1,125 @@
+/* Print stylesheet for the ECU-25 documents (docs/render-pdf.sh). */
+
+@page {
+  size: A4;
+  margin: 16mm 14mm 16mm 14mm;
+}
+
+body {
+  font-family: "DejaVu Sans", "Liberation Sans", sans-serif;
+  font-size: 9.2pt;
+  line-height: 1.42;
+  color: #1a1a1a;
+  max-width: none;
+  margin: 0;
+}
+
+/* ---- headings ---------------------------------------------------------- */
+
+h1 {
+  font-size: 20pt;
+  line-height: 1.2;
+  margin: 0 0 2mm 0;
+  padding-bottom: 3mm;
+  border-bottom: 2.5pt solid #1a3a5c;
+  color: #1a3a5c;
+}
+
+h2 {
+  font-size: 12.5pt;
+  margin: 9mm 0 3mm 0;
+  padding: 1.6mm 0 1.6mm 2.5mm;
+  border-left: 3.5pt solid #1a3a5c;
+  background: #eef2f6;
+  color: #1a3a5c;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 10.5pt;
+  margin: 6mm 0 2mm 0;
+  color: #2b4a6b;
+  page-break-after: avoid;
+}
+
+h2 + table, h3 + table, h2 + p, h3 + p { page-break-before: avoid; }
+
+/* ---- tables ------------------------------------------------------------ */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 8.1pt;
+  margin: 2.5mm 0 4mm 0;
+  page-break-inside: auto;
+}
+
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+
+th {
+  background: #1a3a5c;
+  color: #fff;
+  text-align: left;
+  font-weight: 600;
+  padding: 1.5mm 2mm;
+  border: 0.4pt solid #1a3a5c;
+}
+
+td {
+  padding: 1.3mm 2mm;
+  border: 0.4pt solid #c3cdd7;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) td { background: #f5f7fa; }
+
+/* ---- inline ------------------------------------------------------------ */
+
+code {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 0.88em;
+  background: #eef2f6;
+  padding: 0.2mm 0.9mm;
+  border-radius: 1.2pt;
+}
+
+td code { background: none; padding: 0; }
+
+pre {
+  background: #f5f7fa;
+  border-left: 2.5pt solid #93a6b8;
+  padding: 2.5mm 3mm;
+  font-size: 7.8pt;
+  line-height: 1.3;
+  overflow-x: auto;
+  white-space: pre;
+  page-break-inside: avoid;
+}
+
+pre code { background: none; font-size: inherit; }
+
+blockquote {
+  margin: 3mm 0;
+  padding: 2mm 3mm;
+  background: #fff8e6;
+  border-left: 3pt solid #d19a00;
+  page-break-inside: avoid;
+}
+
+blockquote p { margin: 0.8mm 0; }
+
+hr {
+  border: 0;
+  border-top: 0.5pt solid #c3cdd7;
+  margin: 6mm 0;
+}
+
+strong { color: #10243a; }
+
+ul, ol { margin: 2mm 0 3mm 0; padding-left: 5mm; }
+li { margin: 0.8mm 0; }
+
+img { max-width: 100%; }
+
+a { color: #1a3a5c; text-decoration: none; }

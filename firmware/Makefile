@@ -5,17 +5,18 @@ CC ?= gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -O2 -g
 
 CORE := core/gcu_config.c core/engine_fsm.c core/protection.c \
-        core/amf_fsm.c core/gcu_app.c core/j1939.c core/modbus.c
+        core/amf_fsm.c core/gcu_app.c core/j1939.c core/modbus.c \
+        core/ac_sense.c core/sensors.c core/ecu_main.c
 SIM := sim/plant.c
 
 build:
 	mkdir -p build
 
 build/test_all: $(CORE) $(SIM) tests/test_all.c | build
-	$(CC) $(CFLAGS) $(CORE) $(SIM) tests/test_all.c -o $@
+	$(CC) $(CFLAGS) $(CORE) $(SIM) tests/test_all.c -o $@ -lm
 
 build/sim: $(CORE) $(SIM) sim/main_sim.c | build
-	$(CC) $(CFLAGS) $(CORE) $(SIM) sim/main_sim.c -o $@
+	$(CC) $(CFLAGS) $(CORE) $(SIM) sim/main_sim.c -o $@ -lm
 
 test: build/test_all
 	./build/test_all

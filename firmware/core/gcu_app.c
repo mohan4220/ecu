@@ -43,6 +43,30 @@ static void aux_apply(gcu_app_t *app, gcu_outputs_t *out)
     out->aux2 = aux_value(app, app->cfg.aux2_fn);
 }
 
+/*
+ * Crank load shed.
+ *
+ * C9's ride-through budget is ~63 ms down to the 6.5 V UVLO *with the
+ * backlight off*; at 1.5 W it is 42 ms and the 50 ms claim fails. The
+ * backlight is the only load big enough to matter and the only one this
+ * board can switch, so it goes off whenever the starter is commanded —
+ * before the sag, not after it — and stays off through a measured sag.
+ *
+ * Battery sense taps +12V ahead of D3, so the harness dip is visible within
+ * one tick rather than being hidden behind the hold-up diode. Hysteresis
+ * stops the panel flickering at the threshold.
+ */
+static void backlight_apply(gcu_app_t *app, const gcu_inputs_t *in,
+                            gcu_outputs_t *out)
+{
+    if (out->starter || in->battery_v <= app->cfg.backlight_shed_v) {
+        app->backlight_shed = true;
+    } else if (in->battery_v > app->cfg.backlight_restore_v) {
+        app->backlight_shed = false;
+    }
+    out->backlight_pct = app->backlight_shed ? 0 : app->cfg.backlight_pct;
+}
+
 void gcu_app_tick(gcu_app_t *app, const gcu_inputs_t *in, gcu_outputs_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -144,4 +168,5 @@ void gcu_app_tick(gcu_app_t *app, const gcu_inputs_t *in, gcu_outputs_t *out)
     }
 
     aux_apply(app, out);
+    backlight_apply(app, in, out);
 }

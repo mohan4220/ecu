@@ -5,6 +5,13 @@ void gcu_config_defaults(gcu_config_t *cfg)
     /* Engine sequencing */
     cfg->preheat_ms = 5000;
     /* K5/K6 defaults preserve the old fixed behaviour */
+    /* Backlight: 80 % is readable in a panel without cooking the LEDs.
+     * Shed below 10.0 V and restore above 11.0 V — the 1.0 V gap is wider
+     * than any plausible ripple, so the panel cannot flicker. */
+    cfg->backlight_pct = 80;
+    cfg->backlight_shed_v = 10.0f;
+    cfg->backlight_restore_v = 11.0f;
+
     cfg->aux1_fn = AUX_HORN;
     cfg->aux2_fn = AUX_PREHEAT;
     cfg->crank_ms = 8000;

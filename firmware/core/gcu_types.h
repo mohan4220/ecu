@@ -69,6 +69,9 @@ typedef struct {
      * would often sit idle. */
     bool aux1;           /* K5 — default: horn                       */
     bool aux2;           /* K6 — default: preheat                    */
+    /* Display backlight duty, 0-100 %. Not a relay: it is the one load the
+     * controller can shed, and the crank hold-up budget depends on it. */
+    uint8_t backlight_pct;
 } gcu_outputs_t;
 
 /* What a configurable AUX relay follows. */
@@ -98,6 +101,11 @@ typedef struct {
     /* Configurable relay outputs K5/K6 */
     gcu_aux_fn_t aux1_fn;
     gcu_aux_fn_t aux2_fn;
+
+    /* Display backlight and its crank-time load shed */
+    uint8_t backlight_pct;    /* normal duty                          */
+    float backlight_shed_v;   /* shed at or below this battery volts  */
+    float backlight_restore_v;/* restore above this (hysteresis)      */
 
     /* Protections */
     float overspeed_rpm;
