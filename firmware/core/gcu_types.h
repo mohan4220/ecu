@@ -33,6 +33,8 @@ typedef struct {
     float mains_v[3]; /* mains L-N RMS volts per phase           */
     float mains_hz;
     float load_a[3]; /* per-phase load current, amps            */
+    float real_power_w;  /* total real power, mean(v*i). 0 = not measured */
+    float power_factor;  /* 0..1. 0 = not measured                       */
     float battery_v;
     float dplus_v; /* charge alternator D+                    */
 
@@ -128,7 +130,7 @@ typedef struct {
     uint32_t gen_ready_qualify_ms;    /* gen volts/freq healthy time   */
 } gcu_config_t;
 
-/* Factory defaults for a 25 kVA / 415 V / 50 Hz / 24 V genset. */
+/* Factory defaults for a 12 V 25 kVA / 415 V / 50 Hz / 24 V genset. */
 void gcu_config_defaults(gcu_config_t *cfg);
 
 #endif /* GCU_TYPES_H */

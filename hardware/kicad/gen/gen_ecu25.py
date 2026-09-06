@@ -62,7 +62,7 @@ j1 = conn(s, "J1", "Screw_Terminal_BATT", 2, 25, y)
 s.label(j1.pin(1), "VBAT_IN")
 gnd(s, j1.pin(2))
 
-f1 = s.place("Device:Fuse", "F1", "5A blade", (45, y), rot=90)
+f1 = s.place("Device:Fuse", "F1", "3A blade", (45, y), rot=90)
 s.wire((40, y), f1.pin(1))
 s.label((40, y), "VBAT_IN")
 # D_TVS rot 90: pin2 top, pin1 bottom — rail joins the TOP pin only
@@ -130,7 +130,7 @@ rail(s, "+12V", (vin[0] - 34, vin[1]))
 s.wire(kk3, (vin[0] - 8, vin[1]))
 s.junction((vin[0] - 8, vin[1]))
 s.wire((vin[0] - 8, vin[1]), vin)
-c9 = CP(s, "C9", "2200uF 25V", vin[0] - 16, vin[1] + 10)
+c9 = CP(s, "C9", "2200uF 35V", vin[0] - 16, vin[1] + 10)
 s.wire((vin[0] - 16, vin[1]), c9.pin(1))
 s.junction((vin[0] - 16, vin[1]))
 gnd(s, c9.pin(2))
@@ -155,7 +155,7 @@ gnd(s, r3.pin(2))
 # RON — R4 on its own column; at ron-8 it shared C3's column and the
 # vertical run passed through C3's grounded pin (reviewer finding C1)
 ron = u1.pin(4)
-r4 = R(s, "R4", "49.9k 1% (RON 300kHz)", ron[0] - 4, ron[1] + 8)
+r4 = R(s, "R4", "41.2k 1% (RON 300kHz)", ron[0] - 4, ron[1] + 8)
 s.wire_h_then_v(ron, r4.pin(1))
 gnd(s, r4.pin(2))
 # GND + EP
@@ -617,7 +617,7 @@ for i in range(8):
     x0 = 62.0
     s.label((x0 - 6, yc), f"DIN{i+1}_T", rot=180)
     # pull-up R23x + solder jumper for GND-side switches (terminal side of series R)
-    r13 = R(s, f"R{231+i}", "5.6k 0.5W", x0 + 2, yc - 18)
+    r13 = R(s, f"R{231+i}", "2.2k 0.5W", x0 + 2, yc - 18)
     jp = s.place("Jumper:SolderJumper_2_Open", f"JP{4+i}", "GND-side sw", (x0 + 2, yc - 6.5), rot=270,
                  ref_at=(x0 + 5, yc - 8), val_at=(x0 + 5, yc - 5.5))
     rail(s, "+12V", r13.pin(1))
@@ -741,11 +741,11 @@ s.text((20, 18), "6x G5LE-1 24V relays, 2N7002K low-side drivers, SS34 flyback."
                  " GEN/MAINS contactor contacts are VOLT-FREE; panel wiring must"
                  " also hardware-interlock the contactors.", size=2.0)
 
-j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 5, 25, 90)
+j8 = conn(s, "J8", "Screw_Terminal_RELAY_OUT", 6, 25, 90)
 s.text((12, 26), "J8 pin 1 = OUT_COM, the common contact supply. The INSTALLER"
                  " feeds it from a fused source; it is NOT this board's rail, so"
                  " no field current crosses the PCB.", size=1.5)
-s.text((12, 36), "J8: 1=OUT_COM 2=FUEL(ECU enable) 3=START 4=AUX1 5=AUX2", size=1.5)
+s.text((12, 36), "J8: 1,6=OUT_COM 2=FUEL(ECU enable) 3=START 4=AUX1 5=AUX2", size=1.5)
 s.text((12, 40), "START is PILOT ONLY - drive an external starter relay coil."
                  " A 12V starter solenoid pulls 20-40A; these contacts are 8A DC.", size=1.5)
 j15 = conn(s, "J15", "Screw_Terminal_CONTACTOR", 4, 25, 150)
@@ -822,7 +822,11 @@ for name, kref, qref, rg, rpd, dfly, sig, x0, yc, voltfree in RELAYS:
         s.label((lx, yno), f"{name}_OUT")
 
 # terminal wiring: J8 = common supply + 4 dry NO outputs, J15 = volt-free pairs
-for i, net in enumerate(["OUT_COM", "FUEL_OUT", "START_OUT", "AUX1_OUT", "AUX2_OUT"]):
+# pole 6 is a second OUT_COM: it doubles the common terminal's capacity,
+# gives the installer a daisy-chain point, and removes the temptation to
+# land a wire on an unwired screw
+for i, net in enumerate(["OUT_COM", "FUEL_OUT", "START_OUT", "AUX1_OUT",
+                         "AUX2_OUT", "OUT_COM"]):
     tp = j8.pin(i + 1)
     s.wire(tp, (tp[0] + 4, tp[1]))
     s.label((tp[0] + 4, tp[1]), net)
@@ -1305,8 +1309,8 @@ FP_BY_REF = {
                                                        # needs a 1.01mm drill for
                                                        # its 0.81mm leads and a
                                                        # 12.8mm body envelope
-    "D1":  "Diode_SMD:D_SMC",                              # SMCJ33CA
-    "D2":  "Diode_SMD:D_SOD-123",                          # BZT52C15
+    "D1":  "Diode_SMD:D_SMC",                              # SMCJ16CA
+    "D2":  "Diode_SMD:D_SOD-123",                          # BZT52C12
     "Q1":  "Package_TO_SOT_SMD:TO-252-2",                  # SQD50P06 DPAK: 1=G, 2=D(tab), 3=S
     "C1":  "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",       # 100uF 35V
     "C9":  "Capacitor_THT:CP_Radial_D12.5mm_P5.00mm",      # 2200uF 25V crank
@@ -1386,12 +1390,13 @@ def footprint_for(ref, value, lib_id):
     if ref in FP_BY_REF:
         return FP_BY_REF[ref]
     if lib_id == "Device:R":
-        if "3W" in value:
+        if "3W" in value and value.startswith("0.05"):
             return "Resistor_SMD:R_2512_6332Metric"        # 0.05R shunt, 3W-class 2512
-        if "0.5W" in value:
-            return "Resistor_SMD:R_1210_3225Metric"        # DIN divider top, surge margin
         if "3W" in value:
             return "Resistor_THT:R_Axial_Power_L20.0mm_W6.4mm_P25.40mm"
+        if "0.5W" in value:
+            return "Resistor_SMD:R_1210_3225Metric"        # DIN divider top, surge margin
+
         if "1206" in value:
             return "Resistor_SMD:R_1206_3216Metric"        # AC-sense chain, 200V/element
     if lib_id == "Device:C" and "100V" in value:

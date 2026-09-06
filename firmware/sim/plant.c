@@ -8,7 +8,7 @@ void plant_init(plant_t *p)
 {
     memset(p, 0, sizeof(*p));
     p->coolant_c = 30.0f;
-    p->battery_v = 25.2f;
+    p->battery_v = 12.6f;
     p->mains_on = true;
     p->load_pct = 40.0f;
 }
@@ -59,11 +59,11 @@ void plant_step(plant_t *p, const gcu_outputs_t *out, gcu_inputs_t *in)
     float oil = (p->oil_pump_broken) ? 0.0f : (p->rpm / 1500.0f) * 4.0f;
 
     if (out->starter) {
-        p->battery_v = towards(p->battery_v, 18.0f, 8.0f); /* crank sag */
+        p->battery_v = towards(p->battery_v, 8.5f, 4.0f); /* crank sag */
     } else if (p->fired && !p->charge_alt_broken) {
-        p->battery_v = towards(p->battery_v, 27.6f, 0.5f); /* charging */
+        p->battery_v = towards(p->battery_v, 14.2f, 0.25f); /* charging */
     } else {
-        p->battery_v = towards(p->battery_v, 25.0f, 0.2f); /* rest */
+        p->battery_v = towards(p->battery_v, 12.6f, 0.1f); /* rest */
     }
 
     /* --- fill controller inputs -------------------------------------- */

@@ -85,7 +85,7 @@ def buck():
     d += elm.Line().at(ic.VIN).left(1.6)
     d += (vin := elm.Dot())
     d += elm.Line().left(1.0).label("+12V_PROT", loc="left")
-    d += elm.Capacitor().at(vin.start).down().label("C3\n2.2µF 100V", loc="bottom")
+    d += elm.Capacitor().at(vin.start).down().label("C3\n2.2µF 50V", loc="bottom")
     d += elm.Ground()
     # EN/UVLO divider in its own column, further left
     d += elm.Line().at(ic.EN).left(3.6)
@@ -97,7 +97,7 @@ def buck():
     d += elm.Ground()
     # RT
     d += elm.Line().at(ic.RON).left(0.8)
-    d += elm.Resistor().down(2.0).label("R4 49.9k (RON)\n≈300kHz", loc="bottom")
+    d += elm.Resistor().down(2.0).label("R4 41.2k (RON)\n≈300kHz", loc="bottom")
     d += elm.Ground()
     # BST cap
     d += elm.Line().at(ic.BST).right(1.4)
@@ -350,7 +350,7 @@ def relay_driver():
     d += elm.Line().left(2.0)
     # contacts, drawn separately
     d += elm.Line().at((10.5, 1.2)).right(0.001).label("COM", loc="left")
-    d += elm.Switch().right().label("K1 contacts 16A", loc="top")
+    d += elm.Switch().right().label("K1 contacts 10A / 8A DC", loc="top")
     d += elm.Line().right(0.5).label("NO → J8 out\n(COM from J8 pin 1,\ninstaller-fused)\nK3/K4: volt-free on J15", loc="right")
     save(d, "09-relay-driver")
 

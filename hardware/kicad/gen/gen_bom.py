@@ -57,7 +57,7 @@ PARTS = {
     "Y1":  ("8 MHz HC-49SD, CL 10 pF", "HSE"),
     "Y2":  ("32.768 kHz 3215, CL 6 pF", "LSE / RTC"),
     "L2":  ("33 uH 2 A shielded, 12x12", "e.g. Wurth WE-PD 7447779233"),
-    "F1":  ("Mini blade fuse 5 A + Keystone 3568 holder", ""),
+    "F1":  ("Mini blade fuse 3 A + Keystone 3568 holder", "board draws ~0.45 A; 3 A clears an internal fault that a 5 A blade would not"),
     "F2":  ("RXEF110", "1.1 A hold / 2.2 A trip PPTC, radial. Feeds only the six relay coils (200 mA) and the D+ excitation (100 mA) — field loads are fed by the installer through J8 pin 1, so no field current crosses this board"),
     "C76": ("0.22 F 5.5 V EDLC coin", "RTC backup, radial D10/P5.0"),
     "FB2": ("BLM18PG600SN1", "ferrite bead 0603 — VDDA filter"),

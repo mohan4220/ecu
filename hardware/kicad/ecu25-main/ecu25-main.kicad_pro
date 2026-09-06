@@ -523,7 +523,7 @@
     "netclass_patterns": [
       {
         "netclass": "Battery",
-        "pattern": "+24V"
+        "pattern": "+12V"
       },
       {
         "netclass": "Battery",
@@ -538,12 +538,28 @@
         "pattern": "Net-(D2-K)"
       },
       {
+        "netclass": "Battery",
+        "pattern": "Net-(D3-K)"
+      },
+      {
         "netclass": "Power",
-        "pattern": "+24V_SW"
+        "pattern": "+12V_SW"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "/Relay drivers/AUX1_OUT"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "/Relay drivers/AUX2_OUT"
       },
       {
         "netclass": "Power",
         "pattern": "/Relay drivers/FUEL_OUT"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "/Relay drivers/OUT_COM"
       },
       {
         "netclass": "Power",

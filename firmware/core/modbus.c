@@ -28,7 +28,9 @@ uint16_t modbus_crc(const uint8_t *buf, size_t len)
 void modbus_init(modbus_t *mb, uint8_t address)
 {
     memset(mb, 0, sizeof(*mb));
-    mb->address = address;
+    /* 0 is broadcast-only and 248+ is reserved: either would make the
+     * slave silently answer nothing. */
+    mb->address = (address >= 1 && address <= 247) ? address : 1;
     mb->hold[0] = 2; /* default mode: AUTO */
 }
 
@@ -76,14 +78,13 @@ void modbus_publish(const gcu_inputs_t *in, const gcu_app_t *app,
     iregs[17] = (uint16_t)(mask & 0xFFFFu);
     iregs[18] = (uint16_t)(mask >> 16);
 
-    /* Total real power, assuming balanced PF across the phases we can see.
-     * Without per-phase PF this is an estimate and is documented as such. */
-    float va = 0.0f;
-    for (int i = 0; i < 3; i++) {
-        va += in->gen_v[i] * in->load_a[i];
-    }
-    iregs[19] = sat_u16(va * 0.8f / 100.0f); /* 0.1 kW steps, PF 0.8 assumed */
-    iregs[20] = 800;                          /* 0.001 steps                 */
+    /* Real power and PF come from the AC sampling layer, which computes
+     * mean(v*i) on the phase-matched channels. Publishing an assumed PF here
+     * would put a constant 0.800 into a SCADA trend and overstate kW at the
+     * light loads a genset actually runs at, so an unpopulated measurement
+     * publishes zero rather than a plausible-looking guess. */
+    iregs[19] = sat_u16(in->real_power_w / 100.0f); /* 0.1 kW steps  */
+    iregs[20] = sat_u16(in->power_factor * 1000.0f); /* 0.001 steps  */
     iregs[21] = (uint16_t)(run_hours & 0xFFFFu);
     iregs[22] = (uint16_t)(run_hours >> 16);
 }
@@ -172,7 +173,10 @@ size_t modbus_rx(modbus_t *mb, const uint8_t *req, size_t len,
                  const uint16_t *iregs, uint8_t *resp, size_t resp_max)
 {
     /* Shortest legal RTU frame is addr + fn + 2 CRC. */
-    if (len < 4 || len > MODBUS_MAX_FRAME || resp_max < 5) {
+    /* 8, not 5: the FC06 and FC16 echo paths write resp[0..7]. Guarding
+     * only the 5-byte exception frame let them run three bytes past the
+     * caller's buffer. */
+    if (len < 4 || len > MODBUS_MAX_FRAME || resp_max < 8) {
         return 0;
     }
     uint16_t rx_crc = (uint16_t)(req[len - 2] | (req[len - 1] << 8));

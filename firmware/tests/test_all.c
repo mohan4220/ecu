@@ -872,6 +872,40 @@ static void test_modbus_publish_snapshot(void)
     CHECK(iregs[10] == 0);
 }
 
+
+/* A healthy 12 V battery must never raise BATT_LOW. The 24 V-era thresholds
+ * (22 V / 30 V) made the condition permanently true, which after the 60 s
+ * qualification pinned the horn relay on for the life of the installation —
+ * and no scenario test caught it because the plant was still a 24 V model. */
+static void test_batt_thresholds_are_12v(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.battery_v = 13.8f;      /* charging, entirely normal */
+    in.mains_v[0] = in.mains_v[1] = in.mains_v[2] = 240.0f;
+    in.mains_hz = 50.0f;
+
+    /* 90 s — well past the 60 s alarm qualification. */
+    for (int i = 0; i < 9000; i++) {
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(!app.prot.active[ALARM_BATT_LOW]);
+    CHECK(!app.prot.active[ALARM_BATT_HIGH]);
+    CHECK(!out.aux1);          /* AUX1 defaults to AUX_HORN */
+
+    /* A genuinely flat 12 V battery still trips. */
+    in.battery_v = 10.2f;
+    for (int i = 0; i < 9000; i++) {
+        gcu_app_tick(&app, &in, &out);
+    }
+    CHECK(app.prot.active[ALARM_BATT_LOW]);
+    CHECK(out.aux1);
+}
+
 int main(void)
 {
     test_auto_start_on_mains_fail();
@@ -905,6 +939,7 @@ int main(void)
     test_modbus_write_and_commands();
     test_modbus_write_multiple_is_atomic();
     test_modbus_publish_snapshot();
+    test_batt_thresholds_are_12v();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

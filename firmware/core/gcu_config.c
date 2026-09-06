@@ -30,8 +30,11 @@ void gcu_config_defaults(gcu_config_t *cfg)
     cfg->gen_freq_delay_ms = 5000;
     cfg->overcurrent_a = 40.0f; /* ~115 % of 34.8 A at 25 kVA */
     cfg->overcurrent_delay_ms = 20000;
-    cfg->batt_low_v = 22.0f;
-    cfg->batt_high_v = 30.0f;
+    /* 12 V system: rest 12.6 V, charging 14.2-14.8 V, crank sag to ~8.5 V.
+     * The old 22/30 V pair was left over from the 24 V design and made
+     * batt_low permanently true, which pinned the horn relay on. */
+    cfg->batt_low_v = 11.0f;
+    cfg->batt_high_v = 15.5f;
     cfg->batt_delay_ms = 60000;
     cfg->charge_fail_ratio = 0.5f;
     cfg->charge_fail_delay_ms = 15000;

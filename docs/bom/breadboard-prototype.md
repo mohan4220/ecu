@@ -155,17 +155,17 @@ and it already happened once during the PCB review):
 | 4 | NC (unused) |
 
 **Nodes:** `MCU pin → R60 → base`; `base → R61 → GND`; `emitter → GND`;
-`collector → relay pin 2`; `relay pin 5 → +24 V`; `flyback cathode → +12 V,
-anode → drain`; `relay pin 1 (COM) → +24 V`; `pin 3 (NO) → load`.
+`collector → relay pin 2`; `relay pin 5 → +12 V`; `flyback cathode → +12 V,
+anode → drain`; `relay pin 1 (COM) → +12 V`; `pin 3 (NO) → load`.
 
 | Qty | Prototype part | Production | Note |
 |----:|----------------|-----------|------|
 | 1 | **G5LE-1-DC12** | K1 | Identical part. Solder short wires to its pins rather than forcing it into the breadboard |
 | 1 | **BC337-40** (TO-92) | Q60 (2N7002K) | **Preferred.** The obvious substitute, 2N7000, is *not* logic-level: its V_GS(th) spans 0.8–3.0 V and it is characterised at 10 V gate drive, so a worst-case part barely turns on from 3.3 V. If you do use a 2N7000, measure V_GS(th) first and sort the batch. **Pinout warning: the BC337 is E-B-C from the flat face — the opposite order to the BC557B in block C.** Check both with a DMM before powering |
-| 1 | 1N5819 (DO-41) | D60 (SS34) | Flyback, **cathode to +24 V** |
+| 1 | 1N5819 (DO-41) | D60 (SS34) | Flyback, **cathode to +12 V** |
 | 1 | **1 kΩ** | R60 (100 Ω) | Base resistor. The relay coil is 360 Ω / 33.3 mA, so at hFE ≥ 100 the base needs 0.33 mA; 3.3 V through 1 kΩ gives 2.6 mA — 15× overdrive, hard saturation. The production 100 Ω is a MOSFET gate-stopper and has no function on a BJT: fit the 1 kΩ instead, not both |
 | 1 | 100 kΩ | R61 | Base pull-down — keeps the relay off while the MCU is in reset |
-| 1 | LED, 5 mm, any colour | — | Optional indicator, **from NO (pin 3) to GND, with COM (pin 1) tied to +24 V** — in series with the 3.3 kΩ below. In parallel with the contacts it would light when the relay is *open* |
+| 1 | LED, 5 mm, any colour | — | Optional indicator, **from NO (pin 3) to GND, with COM (pin 1) tied to +12 V** — in series with the 3.3 kΩ below. In parallel with the contacts it would light when the relay is *open* |
 | 1 | 3.3 kΩ | — | Series resistor for that LED: 6.7 mA, 0.15 W. A 1 kΩ would dissipate 0.48 W and cook a 1/4 W part |
 
 **Test:** drive from an MCU pin, hear it click, and scope the collector on release —
@@ -188,7 +188,7 @@ The only block with a real op-amp loop, and the one most worth building.
 
 | Qty | Prototype part | Production | Note |
 |----:|----------------|-----------|------|
-| 1 | **LM358N** (DIP-8) | U3 | Runs from **+24 V** — its input common-mode range (V+ − 1.5 V) must clear the 4.5 V reference, which it does |
+| 1 | **LM358N** (DIP-8) | U3 | Runs from **+12 V** — its input common-mode range (V+ − 1.5 V) must clear the 4.5 V reference, which it does |
 | 1 | **BC557B** (TO-92) | Q3 (BC857) | PNP pass device. Pinout from the flat face, legs down, is **C-B-E** (left pin = collector). Confirm with a DMM diode test before powering: the middle pin should read as the base to both outers |
 | 1 | 62 Ω 1 % | R20 | Sets 8.06 mA for the oil and fuel channels |
 | 1 | 249 Ω 1 % | R22 | Alternative to R20 for the **temperature** channel: 2.0 mA, which avoids saturating a cold NTC. Build one channel or the other |

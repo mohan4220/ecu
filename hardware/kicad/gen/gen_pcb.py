@@ -67,7 +67,7 @@ FIXED = {
     "J4":  (29, 68, 90),      # MPU pickup
     "J13": (29, 84, 90),      # charge alternator D+
     "J3":  (29, 108, 90),     # senders (moved off the bottom edge for J15)
-    "R88": (30, 150, 90),     # 220R 5W: near the edge, away from precision analog
+    "R88": (30, 150, 90),     # 120R 3W: near the edge, away from precision analog
     # top edge: power chain then AC blocks. J5/J6/J15 are 8-pole bodies with
     # only odd poles wired (10.16mm live pitch, see PAD_REMAP)
     "F1":  (46, 30, 0),       # blade fuse holder
@@ -428,14 +428,18 @@ def main():
     # net_settings key is rewritten; the rest of the user's project file is
     # preserved.
     import json
-    battery = {"/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+24V"}
+    battery = {"/Power/VBAT_IN", "Net-(D1-A2)", "Net-(D2-K)", "+12V",
+               "Net-(D3-K)"}
     # logic rails need current-carrying width but reach fine-pitch parts, so
     # they cannot take a wide clearance: the LQFP-100's own pads are 0.2mm
     # apart, and +3V3/+5V land on them (BOM review catch).
     logic = {"+5V", "+3V3"}
-    power = {"+24V_SW", "Net-(U1-SW)", "Net-(J13-Pin_1)"}
+    power = {"+12V_SW", "Net-(U1-SW)", "Net-(J13-Pin_1)"}
+    # OUT_COM is the common return for every field contact and can carry the
+    # installer's whole fused current, so it belongs in the wide class too.
     power |= {n for n in nets
-              if n.endswith(("FUEL_OUT", "START_OUT", "HORN_OUT", "PREHEAT_OUT"))}
+              if n.endswith(("FUEL_OUT", "START_OUT", "AUX1_OUT", "AUX2_OUT",
+                             "OUT_COM"))}
     power |= {n for n, nodes in nets.items()
               if any(r.startswith("K") and r[1:].isdigit() and p == "2"
                      for r, p in nodes)}                     # relay coil drains
@@ -450,6 +454,13 @@ def main():
                 "schematic_color": "rgba(0, 0, 0, 0.000)",
                 "track_width": track, "via_diameter": via, "via_drill": drill,
                 "wire_width": 6}
+
+    # A renamed rail used to fall through to Default in silence. Every
+    # pattern must match a real net in this netlist.
+    declared = battery | (power - hv_line) | logic | hv_line | hv_mid | {"GND"}
+    orphans = sorted(n for n in declared if n not in nets)
+    if orphans:
+        raise SystemExit(f"netclass patterns match no net: {orphans}")
 
     pro_path = f"{OUT}/ecu25-main.kicad_pro"
     pro = json.load(open(pro_path))

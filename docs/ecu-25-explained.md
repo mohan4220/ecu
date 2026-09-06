@@ -128,7 +128,7 @@ The battery rail on an engine is one of the nastiest electrical environments in 
 
 ### 3.1 What the input must survive
 
-- **Cranking dips.** When the starter motor engages, it draws hundreds of amps and the "24 V" rail sags — briefly down to 9–10 V. If our 5 V and 3.3 V rails collapse during that dip, the MCU resets mid-start-sequence — unacceptable. So the input range is **9–32 V continuous**, and a bulk electrolytic capacitor stores enough charge to ride through the worst milliseconds.
+- **Cranking dips.** When the starter motor engages, it draws hundreds of amps and the "24 V" rail sags — briefly down to 9–10 V. If our 5 V and 3.3 V rails collapse during that dip, the MCU resets mid-start-sequence — unacceptable. So the input range is **8–16 V continuous**, and a bulk electrolytic capacitor stores enough charge to ride through the worst milliseconds.
 - **Load dump.** The classic automotive fault: the battery cable falls off (or is disconnected) while the charge alternator is charging hard. The alternator's field can't collapse instantly, so the rail flies up — in a 12 V system, transients approaching **60–100 V for tens of milliseconds**. Anything not designed for this dies.
 - **Reverse battery.** A mechanic connects the battery backwards. It happens constantly in the field. The design must block it harmlessly.
 - **Inductive spikes.** Every solenoid, relay coil, and injector on the machine kicks voltage spikes back onto the rail when switched off.
@@ -141,7 +141,7 @@ What the "24 V" rail actually looks like over a start/stop cycle:
  V
 100┤                                  ╭╮ load dump — UNPROTECTED could reach here
    │                                  ││
- 53┤ · · · · · · · · · · · · · · · · ·││· · TVS clamps it to ~53 V
+ 53┤ · · · · · · · · · · · · · · · · ·││· · TVS clamps it to ~26 V
    │                                  ││
  32┤            charging              │╰──╮
  28┤        ╭─────────────────────────╯   ╰────
@@ -158,7 +158,7 @@ What the "24 V" rail actually looks like over a start/stop cycle:
 
 - **Fuse (5 A blade type).** Last-resort protection: if something on the board fails short, the fuse opens before the wiring harness catches fire. It protects the *wiring*, not the electronics — fuses are far too slow to save semiconductors.
 
-- **TVS diode (SMCJ33CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (33 V) it is invisible. When a transient exceeds its breakdown (~36–40 V) it avalanches and clamps the rail (clamping ~53 V at rated pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
+- **TVS diode (SMCJ16CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (33 V) it is invisible. When a transient exceeds its breakdown (~36–40 V) it avalanches and clamps the rail (clamping ~26 V at rated pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
 
 - **Reverse-polarity P-channel MOSFET.** The textbook answer is a series diode — but a diode drops ~0.7 V continuously, wasting power and reducing headroom during crank dips. The production trick: a **P-MOSFET with source toward the load, gate pulled to ground**. With correct battery polarity, the gate is ~12 V below the source, the FET turns fully on, and drop is just I×R_DS(on) — millivolts. With reversed battery, the gate-source voltage is the wrong polarity, the FET stays off, and (with the body diode oriented to block) no current flows. A zener protects the gate from exceeding ±V_GS(max).
 
@@ -182,13 +182,13 @@ What the "24 V" rail actually looks like over a start/stop cycle:
 
 We need 5 V from 12 V. Two ways to do that:
 
-- **Linear regulator:** drops (24−5) = 19 V across itself at full current. At 300 mA that's ~5.7 W of pure heat. Not viable.
+- **Linear regulator:** drops (12−5) = 7 V across itself at full current. At 300 mA that's ~2.1 W of pure heat. Not viable.
 - **Buck (step-down switching) converter:** switches the input on and off at high frequency through an inductor. The inductor and output capacitor average the chopped waveform to a smooth DC at the target voltage; energy is *transferred*, not burned. Efficiency 85–92 %.
 
 Refresher on buck operation: a high-side switch connects V_IN to the inductor for duty-cycle fraction D of each cycle; V_OUT ≈ D × V_IN. When the switch opens, inductor current keeps flowing (inductors resist current change) through a low-side path (a diode, or in a **synchronous** buck like ours, a second internal MOSFET — more efficient). The control loop adjusts D continuously to regulate V_OUT.
 
 **Why the LM5164-Q1 specifically:**
-- **100 V maximum input.** Our TVS clamps load dump at ~53 V. The converter must survive that with margin — a "36 V max" converter would be at its edge; a 100 V part shrugs.
+- **100 V maximum input.** Our TVS clamps load dump at ~26 V. The converter must survive that with margin — a "36 V max" converter would be at its edge; a 100 V part shrugs.
 - **Synchronous, internal FETs** — few external parts, good efficiency.
 - **-Q1 suffix = AEC-Q100 automotive qualification.** The part is tested and guaranteed for automotive stress: −40 to +125 °C, temperature cycling, humidity, vibration lifetime tests. On battery-connected circuits we prefer Q100 parts throughout.
 
@@ -423,30 +423,44 @@ Six electromechanical relays, each driven by a logic-level N-channel MOSFET from
 **Flyback refresher:** a relay coil is an inductor. When the driving FET switches off, the coil current cannot stop instantly (V = L·di/dt); the collapsing field drives the FET's drain to destructive voltages. A diode across the coil gives that current a circulating path, clamping the spike to one diode drop. Non-negotiable on every coil.
 
 ```
-                +5V
+             +12V_SW  (PTC-protected, coils only)
                  │
         ┌────────┤
         │        │
-     [flyback   ┌┴┐ relay          relay contacts ──► terminal block
-      diode ▲]  │ │ coil           (fuel solenoid / starter / contactor
-        │       └┬┘                 coil / horn / glow — see table)
-        └────────┤
-                 │ drain
- MCU pin ──[R]──┤► gate   N-FET (logic level)
+     [flyback   ┌┴┐ relay
+      diode ▲]  │ │ coil          ┌─ COM ─── J8 pin 1/6 "OUT_COM"
+        │       └┬┘               │         (installer's FUSED supply —
+        └────────┤        contacts │          NOT this board's rail)
+                 │ drain          └─ NO ──── J8 pin 2..5 → field
+ MCU pin ──[R]──┤► gate   2N7002K
                  │ source
                 GND
 ```
+
+**The contacts are dry, and that is the whole point.** The relay coils run from
++12V_SW, but the contact side is isolated from this board entirely: pins 1 and 6
+of J8 are a common terminal that *the installer* feeds from a fused source. A
+dead short on any field output blows the installer's fuse and never reaches our
+copper. GEN and MAINS go further still — they are volt-free COM+NO pairs on
+their own block, J15, because those contactor coils run on a separate AC source.
+
+**Pilot duty only.** A G5LE-1 is 10 A resistive / 8 A DC. On a 12 V system a
+starter solenoid pulls **20–40 A** and glow plugs **28–60 A** — both far past
+that. START and any preheat channel must drive the *coil of an external relay
+or contactor*, never the load itself. Wiring a starter solenoid directly to
+these contacts welds them closed, and a welded starter contact means the engine
+cranks and cannot be commanded to stop.
 
 The assignments:
 
 | Relay | Function | Why it exists |
 |-------|----------|---------------|
-| K1 (16 A) | **Fuel solenoid** | The energize-to-run valve on the injection pump. Powered = engine can run; released = engine stops. This is also the ultimate protection actuator: every shutdown ends with K1 off. |
-| K2 (16 A) | **Starter motor** | Drives the starter solenoid. Big inrush, hence 16 A rating. Firmware enforces crank time limits and crank disconnect. |
-| K3 | **Generator contactor coil** | Energizes the big external contactor that connects the load to the generator. Contacts rated 250 VAC because contactor coils are usually 230 VAC. |
-| K4 | **Mains contactor coil** | Same, for the mains side. |
-| K5 | **Alarm / horn** | Sounds on warning or shutdown. |
-| K6 | **Preheat / glow** | Drives glow-plug relay for cold starts (timed by firmware before cranking). |
+| K1 | **Fuel / run-enable** | On this CRDi engine it drives the engine-ECU enable input; in legacy mode the energize-to-run fuel valve. This is the ultimate protection actuator: every shutdown ends with K1 off. |
+| K2 | **Start** | Drives the coil of an **external starter relay** — never the solenoid itself. Firmware enforces crank time limits and crank disconnect. |
+| K3 | **Generator contactor coil** | Volt-free pair on J15. Energizes the big external contactor connecting the load to the generator. |
+| K4 | **Mains contactor coil** | Volt-free pair on J15, same idea for the mains side. |
+| K5 | **AUX1** — configurable, default **horn** | Sounds on warning or shutdown. |
+| K6 | **AUX2** — configurable, default **preheat** | Configurable because on a CRDi engine the ECU owns the cold-start aid, so a hard-wired preheat channel would often sit idle. Other options: running, fault, off. |
 
 **The transfer interlock — belt and braces:** K3 and K4 must never be on together (that would parallel an unsynchronized generator with the mains — effectively a short between two out-of-phase sources; breakers trip, or worse). Protection is layered: (1) firmware interlocks the two outputs with a dead time (**break-before-make**); (2) the panel wiring must ALSO cross-interlock the two contactors electrically and, ideally, mechanically. Never trust software alone for this — a documented wiring requirement in the manual.
 
