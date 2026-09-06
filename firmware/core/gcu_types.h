@@ -61,9 +61,22 @@ typedef struct {
     bool starter;        /* K2                                       */
     bool gen_contactor;  /* K3                                       */
     bool mains_contactor;/* K4                                       */
-    bool horn;           /* K5                                       */
-    bool preheat;        /* K6                                       */
+    /* K5/K6 are configurable. aux1/aux2 carry whatever gcu_aux_fn_t the
+     * config assigns; horn and preheat are the defaults. The engine ECU owns
+     * the cold-start aid on a CRDi engine, so a hard-wired preheat channel
+     * would often sit idle. */
+    bool aux1;           /* K5 — default: horn                       */
+    bool aux2;           /* K6 — default: preheat                    */
 } gcu_outputs_t;
+
+/* What a configurable AUX relay follows. */
+typedef enum {
+    AUX_OFF = 0,      /* channel unused                              */
+    AUX_HORN,         /* audible alarm: any shutdown, or unacked warn */
+    AUX_PREHEAT,      /* energised during the PREHEAT state           */
+    AUX_RUNNING,      /* closed whenever the engine is running        */
+    AUX_FAULT,        /* closed on any latched shutdown               */
+} gcu_aux_fn_t;
 
 /* ------------------------------------------------------------------ config */
 
@@ -79,6 +92,10 @@ typedef struct {
     uint32_t cooldown_ms;
     uint32_t stop_timeout_ms;     /* rpm must reach 0 within this     */
     float nominal_rpm;
+
+    /* Configurable relay outputs K5/K6 */
+    gcu_aux_fn_t aux1_fn;
+    gcu_aux_fn_t aux2_fn;
 
     /* Protections */
     float overspeed_rpm;

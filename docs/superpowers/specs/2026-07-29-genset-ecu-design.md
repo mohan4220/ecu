@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29 (rev A 2026-08-11: engine confirmed common-rail electronic)
 **Status:** Draft for review
-**Target:** 25 kVA diesel genset, 24 V DC electrical system, 415 V 3-phase alternator, 50 Hz / 1500 RPM. Engine is a **common-rail electronic diesel with its own engine-management ECU** (CPCB IV+ class); ECU-25 is the genset supervisor talking to it over J1939. A legacy mode (mechanical-governor engine, analog senders, fuel solenoid) is retained so the same hardware also runs older gensets.
+**Target:** Kirloskar KG4-25WS1, 25 kVA diesel genset, **12 V DC / 75 Ah** electrical system, 415 V 3-phase alternator, 50 Hz / 1500 RPM. Engine is a **common-rail electronic diesel with its own engine-management ECU** (engine 3R550ETA 4G1, CPCB IV+: 3-cyl 1.65 L CRDi, EGR + DOC — no SCR/DEF and no DPF, so no aftertreatment UI is needed); ECU-25 is the genset supervisor talking to it over J1939. A legacy mode (mechanical-governor engine, analog senders, fuel solenoid) is retained so the same hardware also runs older gensets.
 
 ## 1. Purpose
 
@@ -46,7 +46,7 @@ Two boards:
 ## 4. Hardware Design — Main Board
 
 ### 4.1 Power supply
-- Input 9–32 V DC continuous (24 V nominal); survives cranking dips and clamps load-dump transients.
+- Input 9–32 V DC continuous (12 V nominal); survives cranking dips and clamps load-dump transients.
 - Chain: input connector → 5 A blade fuse → SMCJ33CA bidirectional TVS → reverse-polarity P-channel MOSFET → ferrite bead + bulk capacitance → LM5164-Q1 synchronous buck (100 V max input) → 5 V rail → TLV75533 LDO → 3.3 V rail.
 - 5 V rail powers relay coils' drivers, analog pull-ups, LCD backlight; 3.3 V powers MCU, transceivers, analog front ends.
 - Bulk electrolytic sized to ride through ≥10 ms crank transients without MCU reset.
@@ -59,7 +59,7 @@ Two boards:
 - Internal independent watchdog (IWDG) always enabled in firmware.
 
 ### 4.3 Digital inputs (8x)
-- 24 V level, configurable active-high/low in firmware.
+- 12 V level, configurable active-high/low in firmware.
 - Per channel: series resistor divider, Schottky clamp to rail, RC filter (~1 ms), Schmitt buffer or direct GPIO with firmware debounce.
 - Default assignment: emergency stop, low oil pressure switch, high coolant temperature switch, remote start, low coolant level, 3x configurable spare.
 
@@ -127,7 +127,7 @@ Timing: 1 kHz base tick; protection loop 100 Hz; metering DMA continuous; HMI 20
 ## 7. Safety and Test Plan
 
 1. **Board bring-up** — power rails, MCU alive, peripherals, no AC connected.
-2. **Bench rig** — 24 V bench PSU; signal generator as MPU; potentiometers as senders; switches as digital inputs; lamps/relays as loads; 230 V through an isolation transformer for ONE AC channel to validate metering math; CT loop test with a load and multi-turn primary.
+2. **Bench rig** — 12 V bench PSU; signal generator as MPU; potentiometers as senders; switches as digital inputs; lamps/relays as loads; 230 V through an isolation transformer for ONE AC channel to validate metering math; CT loop test with a load and multi-turn primary.
 3. **Genset dry runs** — fuel solenoid held closed: verify crank, crank-disconnect inhibit, e-stop.
 4. **Commissioning checklist** — staged: engine control only → add gen metering → add protections live → AMF transfer last, with manual supervision at every stage.
 

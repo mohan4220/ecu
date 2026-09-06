@@ -14,6 +14,35 @@ void gcu_app_init(gcu_app_t *app)
     app->mains_open_ticks = UINT32_MAX;
 }
 
+/* Resolve the two configurable relay outputs. Keeping this in one place
+ * means a new AUX function is a single switch arm, not a hunt through the
+ * FSMs for somewhere to hang an output. */
+static bool aux_value(gcu_app_t *app, gcu_aux_fn_t fn)
+{
+    switch (fn) {
+    case AUX_HORN:
+        return protection_shutdown_active(&app->prot) ||
+               protection_warning_active(&app->prot);
+    case AUX_PREHEAT:
+        return app->engine.state == ENG_PREHEAT;
+    case AUX_RUNNING:
+        return app->engine.state == ENG_RUNNING ||
+               app->engine.state == ENG_WARMUP ||
+               app->engine.state == ENG_COOLDOWN;
+    case AUX_FAULT:
+        return protection_shutdown_active(&app->prot);
+    case AUX_OFF:
+    default:
+        return false;
+    }
+}
+
+static void aux_apply(gcu_app_t *app, gcu_outputs_t *out)
+{
+    out->aux1 = aux_value(app, app->cfg.aux1_fn);
+    out->aux2 = aux_value(app, app->cfg.aux2_fn);
+}
+
 void gcu_app_tick(gcu_app_t *app, const gcu_inputs_t *in, gcu_outputs_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -114,6 +143,5 @@ void gcu_app_tick(gcu_app_t *app, const gcu_inputs_t *in, gcu_outputs_t *out)
         app->mains_open_ticks++;
     }
 
-    out->horn = protection_shutdown_active(&app->prot) ||
-                protection_warning_active(&app->prot);
+    aux_apply(app, out);
 }

@@ -159,8 +159,8 @@ void engine_fsm_tick(engine_fsm_t *f, const gcu_config_t *cfg,
     }
     }
 
-    /* Outputs derive purely from state. */
-    out->preheat = (f->state == ENG_PREHEAT);
+    /* Outputs derive purely from state. Preheat is no longer a fixed output:
+     * gcu_app maps it onto whichever AUX relay the config assigns. */
     out->starter = (f->state == ENG_CRANK);
     /* run_enable already during PREHEAT: gives a J1939 engine ECU its boot
      * time before the starter engages (so crank-disconnect has live rpm),

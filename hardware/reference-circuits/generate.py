@@ -26,11 +26,11 @@ def save(d, name):
 def input_protection():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
-    d += elm.Line().right(0.001).label("J1-1\nVBAT +24V", loc="left")
+    d += elm.Line().right(0.001).label("J1-1\nVBAT +12V", loc="left")
     d += elm.Dot()
     d += elm.Fuse().right().label("F1 5A\nblade", loc="top")
     d += (n1 := elm.Dot())
-    d += elm.Zener().down().label("D1\nSMCJ33CA\nTVS", loc="bottom")
+    d += elm.Zener().down().label("D1\nSMCJ16CA\nTVS", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n1.start).right(2.0)
     d += (q1 := elm.PFet(bulk=True).theta(-90).anchor("drain"))
@@ -55,7 +55,7 @@ def input_protection():
     d += elm.Capacitor().down().label("C2\n100nF 50V", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n4.start).right(1.0)
-    d += elm.Arrow().right(0.8).label("+24V_PROT\nto buck", loc="right")
+    d += elm.Arrow().right(0.8).label("+12V_PROT\nto buck", loc="right")
     save(d, "01-power-input-protection")
 
 
@@ -84,7 +84,7 @@ def buck():
     # VIN rail with input cap
     d += elm.Line().at(ic.VIN).left(1.6)
     d += (vin := elm.Dot())
-    d += elm.Line().left(1.0).label("+24V_PROT", loc="left")
+    d += elm.Line().left(1.0).label("+12V_PROT", loc="left")
     d += elm.Capacitor().at(vin.start).down().label("C3\n2.2µF 100V", loc="bottom")
     d += elm.Ground()
     # EN/UVLO divider in its own column, further left
@@ -93,11 +93,11 @@ def buck():
     d += elm.Resistor().at(en.start).up().toy(vin.start).label("R2\n100k")
     d += elm.Line().tox(vin.start)
     d += elm.Dot()
-    d += elm.Resistor().at(en.start).down(2.4).label("R3\n23.2k\n(UVLO 8V)", loc="bottom")
+    d += elm.Resistor().at(en.start).down(2.4).label("R3\n30.1k\n(UVLO 6.5V)", loc="bottom")
     d += elm.Ground()
     # RT
     d += elm.Line().at(ic.RON).left(0.8)
-    d += elm.Resistor().down(2.0).label("R4 100k (RON)\n≈300kHz", loc="bottom")
+    d += elm.Resistor().down(2.0).label("R4 49.9k (RON)\n≈300kHz", loc="bottom")
     d += elm.Ground()
     # BST cap
     d += elm.Line().at(ic.BST).right(1.4)
@@ -120,7 +120,7 @@ def buck():
     d += elm.Line().at(fb.start).tox(ic.FB)
     d += elm.Line().toy(ic.FB)
     d += elm.Line().to(ic.FB)
-    save(d, "02-buck-24v-to-5v")
+    save(d, "02-buck-12v-to-5v")
 
 
 # ---------------------------------------------------------------- 3. LDO
@@ -164,17 +164,17 @@ def ldo():
 def digital_input():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
-    d += elm.Line().right(0.001).label("DIN1 terminal\n(switch to +24V\nor GND, config)", loc="left")
+    d += elm.Line().right(0.001).label("DIN1 terminal\n(switch to +12V\nor GND, config)", loc="left")
     d += (t0 := elm.Dot())
-    d += elm.Resistor().at(t0.start).right().label("R10\n10k 0.5W")
+    d += elm.Resistor().at(t0.start).right().label("R10\n5.6k 0.5W")
     d += (n1 := elm.Dot())
-    d += elm.Resistor().down().label("R11\n3.3k", loc="bottom")
+    d += elm.Resistor().down().label("R11\n1.8k", loc="bottom")
     d += elm.Ground()
     d += elm.Resistor().at(t0.start).up(2.4).label("R13 10k + JP4\n(fit for GND-side\nswitches)", loc="top")
-    d += elm.Line().up(0.4).label("+24V_PROT", loc="top")
+    d += elm.Line().up(0.4).label("+12V_PROT", loc="top")
     d += elm.Line().at(n1.start).right(1.6)
     d += (n2 := elm.Dot())
-    d += elm.Capacitor().down().label("C10\n470nF\nτ≈1.2ms", loc="bottom")
+    d += elm.Capacitor().down().label("C10\n1uF\nτ≈1.4ms", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n2.start).right(0.8)
     d += elm.Resistor().right().label("R12\n10k")
@@ -194,7 +194,7 @@ def sender_input():
     d.config(fontsize=10, unit=2.0)
     d += elm.Vdd().at((0, 5.4)).label("+5V")
     d += elm.SourceI().at((0, 5.4)).down(2.4).label(
-        "I1  8mA (oil/fuel)\n249Ω→2mA (temp)\n[LM358@24V + BC857 + R_set,\n4.5V ref = 10k/90.9k off +5V\n— see KiCad sheet]", loc="bottom"
+        "I1  8mA (oil/fuel)\n249Ω→2mA (temp)\n[LM358@12V + BC857 + R_set,\n4.5V ref = 10k/90.9k off +5V\n— see KiCad sheet]", loc="bottom"
     )
     d += elm.Line().down(0.6)
     d += (n := elm.Dot())
@@ -342,16 +342,16 @@ def relay_driver():
     d += elm.Ground().at(q.source)
     d += elm.Line().at(q.drain).up(0.7)
     d += (nd := elm.Dot())
-    d += elm.Inductor2(loops=3).at(nd.start).up(2.4).label("K1 coil\n24V 360Ω", loc="top")
+    d += elm.Inductor2(loops=3).at(nd.start).up(2.4).label("K1 coil\n12V 360Ω", loc="top")
     d += (td := elm.Dot())
-    d += elm.Line().up(0.5).label("+24V_SW", loc="top")
+    d += elm.Line().up(0.5).label("+12V_SW", loc="top")
     d += elm.Line().at(nd.start).right(2.0)
     d += elm.Diode().up(2.4).label("D60 SS34\nflyback", loc="bottom")
     d += elm.Line().left(2.0)
     # contacts, drawn separately
     d += elm.Line().at((10.5, 1.2)).right(0.001).label("COM", loc="left")
     d += elm.Switch().right().label("K1 contacts 16A", loc="top")
-    d += elm.Line().right(0.5).label("NO → fuel solenoid\nterminal (J8)\n(K3/K4 GEN+MAINS: volt-free\nCOM+NO pairs on J15)", loc="right")
+    d += elm.Line().right(0.5).label("NO → J8 out\n(COM from J8 pin 1,\ninstaller-fused)\nK3/K4: volt-free on J15", loc="right")
     save(d, "09-relay-driver")
 
 
@@ -455,7 +455,7 @@ def system_context():
     d += disp
     scada = flow.Box(w=3.4, h=1.2).at((13.2, 1.0)).label("SCADA / BMS\n/ laptop")
     d += scada
-    batt = flow.Box(w=2.6, h=1.1).at((13.6, 3.7)).label("24V\nbattery")
+    batt = flow.Box(w=2.6, h=1.1).at((13.6, 3.7)).label("12V 75Ah\nbattery")
     d += batt
     # power flow
     d += elm.Arrow().at(mains.E).to(km.W)
@@ -474,7 +474,7 @@ def system_context():
     d += elm.Arrow().tox(disp.E).label("ribbon SPI", loc="bot")
     d += elm.Arrow().at(ecu.E).tox(scada.W).label("RS485 Modbus", loc="top")
     d += elm.Line().at(batt.S).toy(ecu.E[1] + 0.9)
-    d += elm.Arrow().tox(ecu.E).label("24V DC", loc="top")
+    d += elm.Arrow().tox(ecu.E).label("12V DC", loc="top")
     save(d, "00a-system-context")
 
 
@@ -517,7 +517,7 @@ def board_subsystems():
     for i, b in enumerate(outboxes):
         d += elm.Line(arrow="<->" if i in (1, 2, 4) else "->").at((mcu.E[0], b.W[1])).tox(b.W)
     d += elm.Arrow().at(psu.S).to(mcu.N)
-    d += elm.Arrow().at((0.4, 12.0)).tox(psu.W).label("24V battery in", loc="top")
+    d += elm.Arrow().at((0.4, 12.0)).tox(psu.W).label("12V battery in", loc="top")
     save(d, "00b-main-board-subsystems")
 
 
@@ -642,28 +642,28 @@ def vref_buffer():
     save(d, "13-vref-mid-buffer")
 
 
-# ---------------------------------------------------------------- 14. switched 24V rail
+# ---------------------------------------------------------------- 14. switched 12V rail
 def sw24():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.2)
-    d += elm.Line().right(0.001).label("+24V_PROT", loc="left")
+    d += elm.Line().right(0.001).label("+12V_PROT", loc="left")
     d += elm.Fuse().right().label("F2 PTC 1.1A 72V\n(RXEF110 radial)", loc="top")
     d += (n := elm.Dot())
-    d += elm.Zener().down().reverse().label("D80\nSMBJ33CA\n(bidir)", loc="bottom")
+    d += elm.Zener().down().reverse().label("D80\nSMBJ16CA\n(bidir)", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n.start).right(1.2)
-    d += elm.Arrow().right(0.8).label("+24V_SW\nrelay coils K1–K6\n+ D+ excitation", loc="right")
-    save(d, "14-24v-switched-rail")
+    d += elm.Arrow().right(0.8).label("+12V_SW\nrelay coils K1–K6\n+ D+ excitation", loc="right")
+    save(d, "14-12v-switched-rail")
 
 
 # ---------------------------------------------------------------- 15. battery sense
 def battery_sense():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.0)
-    d += elm.Line().right(0.001).label("+24V_PROT\n(= battery, fused)", loc="left")
+    d += elm.Line().right(0.001).label("+12V_PROT\n(= battery, fused)", loc="left")
     d += elm.Resistor().right().label("R85\n100k 1%")
     d += (n1 := elm.Dot())
-    d += elm.Resistor().at(n1.start).down(2.2).label("R86\n6.8k 1%", loc="bottom")
+    d += elm.Resistor().at(n1.start).down(2.2).label("R86\n22k 1%", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n1.start).right(0.8)
     d += elm.Resistor().right().label("R87\n4.7k")
@@ -681,14 +681,14 @@ def battery_sense():
 def dplus():
     d = schemdraw.Drawing()
     d.config(fontsize=10, unit=2.0)
-    d += elm.Line().right(0.001).label("+24V_SW\n(on with run enable)", loc="left")
-    d += elm.Resistor().right().label("R88 220Ω 5W\n(excitation ≈100mA)", loc="top")
+    d += elm.Line().right(0.001).label("+12V_SW\n(on with run enable)", loc="left")
+    d += elm.Resistor().right().label("R88 120Ω 3W\n(excitation ≈100mA)", loc="top")
     d += (dp := elm.Dot())
     d += elm.Line().at(dp.start).down(1.6).label("D+ terminal →\ncharge alternator", loc="bottom")
     d += elm.Line().at(dp.start).right(1.0)
     d += elm.Resistor().right().label("R85a\n100k 1%")
     d += (n1 := elm.Dot())
-    d += elm.Resistor().at(n1.start).down(2.0).label("R86a\n6.8k 1%", loc="bottom")
+    d += elm.Resistor().at(n1.start).down(2.0).label("R86a\n22k 1%", loc="bottom")
     d += elm.Ground()
     d += elm.Line().at(n1.start).right(0.8)
     d += elm.Resistor().right().label("R87a\n4.7k")

@@ -11,12 +11,12 @@ design authority; this project is its capture.
 
 | Sheet | Contents |
 |-------|----------|
-| Power | Input protection (F1, SMCJ33CA, reverse-polarity P-FET), LM5164 buck 24→5 V, TLV75533 LDO 5→3.3 V, PTC-protected +24V_SW rail |
-| Analog inputs | 3× current-source sender inputs (LM358 + BC857, 8 mA / 2 mA), battery sense ÷15.7, D+ excite + sense |
+| Power | Input protection (F1, SMCJ16CA, reverse-polarity P-FET), D3+C9 crank hold-up, LM5164 buck 12→5 V, TLV75533 LDO 5→3.3 V, PTC-protected +12V_SW rail |
+| Analog inputs | 3× current-source sender inputs (LM358 + BC857, 8 mA / 2 mA), battery sense ÷5.55, D+ excite + sense |
 | AC sensing | 6× ÷235.9 dividers biased at VREF_MID, 3× CT burden + MCP6002 amps, 1.65 V buffered midpoint |
-| Digital inputs + MPU | 8× 24 V inputs (divider + BAT54S clamp, per-channel GND-side-switch jumper), MPU → LM2903 comparator with hysteresis |
-| Relay drivers | 6× G5LE-1 + 2N7002K + SS34; GEN/MAINS contacts volt-free |
-| Comms | TJA1051T/3 CAN (split termination, JP1), THVD1450 RS485 (JP2 term), M95M02 EEPROM |
+| Digital inputs + MPU | 8× 12 V inputs (divider + BAT54S clamp, per-channel GND-side-switch jumper), MPU → LM2903 comparator with hysteresis |
+| Relay drivers | 6× G5LE-1-DC12 + 2N7002K + SS34. All contacts dry: J8 pin 1 OUT_COM is the installer's fused supply, so no field current crosses the board. K5/K6 configurable AUX |
+| Comms | TJA1051T/3 CAN (J1939, split termination JP1), THVD1450 RS485 (Modbus RTU, JP2 term), M95M02 EEPROM |
 | MCU | STM32F407VGT6, crystals, VCAP, VDDA filter, supercap RTC backup, SWD (TC2030), debug UART |
 | Display connector | 20-way ribbon to the display board (SPI + selects + backlight power) |
 
@@ -51,7 +51,7 @@ no ERC command.
 ## Bill of materials
 
 `gen/gen_bom.py` builds [docs/bom/ecu25-main-bom.md](../../docs/bom/ecu25-main-bom.md)
-and the matching CSV from the schematic netlist — 300 parts in 91 order lines,
+and the matching CSV from the schematic netlist — 302 parts in 94 order lines,
 grouped by orderable value and package. For bench work,
 [docs/bom/breadboard-prototype.md](../../docs/bom/breadboard-prototype.md)
 translates the SMD design into through-hole blocks that can be built one
@@ -89,7 +89,7 @@ unsynchronized sources, so phase-to-phase can reach ~680 Vpk; 1.0 mm inside
 the 4×330k divider chains; per-chain exemptions so the first 330k's own pads
 don't false-trip) — pcbnew picks it up automatically. The file is generated:
 re-annotating nets by hand orphans the rules, regenerate instead. Routing
-guidance: battery input F1→Q1→buck ≥2 mm track; +24V_SW and relay
+guidance: battery input F1→Q1→buck ≥2 mm track; +12V_SW and relay
 coil/contact tracks ≥1 mm; 0.05 R CT shunts want wide copper spades and
 Kelvin-routed sense off the pad inner edges; VREF_MID is a star net — route
 each channel's bias from the buffer side. Interactive routing (or freerouting

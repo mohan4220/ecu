@@ -23,7 +23,7 @@ A **25 kVA diesel genset** is:
 
 - A **diesel engine** (~30–40 HP) with a **mechanical governor** — a flyweight mechanism inside the fuel pump that holds the engine at 1500 RPM by itself. Because the governor is mechanical, our controller does **not** control speed. It only controls **fuel on/off** (a solenoid valve) and the **starter motor**.
 - An **alternator** bolted to the engine, producing **415 V line-to-line, 3-phase, 50 Hz** when the engine turns at 1500 RPM. (Frequency is locked to speed: a 4-pole alternator gives 50 Hz at exactly 1500 RPM. This is why speed and frequency protections are really the same thing measured two ways.)
-- A **24 V battery system** — battery, starter motor, and a small **charge alternator** (like a car alternator) that recharges the battery while the engine runs.
+- A **12 V battery system** — battery, starter motor, and a small **charge alternator** (like a car alternator) that recharges the battery while the engine runs.
 
 > **Design update (2026-08-11):** the target engine is confirmed to be a **common-rail electronic diesel** with its own engine-management ECU (the box that controls injection, rail pressure, EGR, DPF). That changes ECU-25's role from "drives the engine directly" to "**supervises the engine over J1939**": start/stop via a run-enable relay + CAN, engine speed / oil pressure / coolant temp / fault codes read from the engine ECU's broadcasts, and engine fault codes (DM1) shown on our display. Everything else — AC metering, protections, AMF transfer, display, Modbus — is unchanged. The analog sender inputs, MPU input, and fuel-solenoid relay described below stay in the hardware as a **legacy mode**, so the same board still runs older mechanical-governor gensets. Where the text below says "fuel solenoid", read "run enable" for the electronic engine.
 
@@ -39,7 +39,7 @@ A **25 kVA diesel genset** is:
         │                                  │  motor (K2)  └───┬────┘          └──┬──────┘
         │                                  │                  │ flywheel         │ 415V 3ph
         │                                  │           MPU ◄──┘ teeth            │
-        │                                  │  24V BATTERY ◄── charge alternator  │
+        │                                  │  12V BATTERY ◄── charge alternator  │
         │                                  └─────────────────────────────────────┘
         │                                                                        │
         ▼                                                                        ▼
@@ -95,7 +95,7 @@ One picture, whole job: watch both power sources, run the engine, and decide whi
 ```
  FIELD WIRING            CONDITIONING                 MCU                  OUTPUT STAGE      FIELD WIRING
  ────────────            ────────────                 ───                  ────────────      ────────────
- 24V battery ──────► fuse·TVS·revFET ► buck 5V ► LDO 3.3V ──── power to everything
+ 12V battery ──────► fuse·TVS·revFET ► buck 5V ► LDO 3.3V ──── power to everything
                                                        │
  8x switches ──────► divider+clamp+RC ─────────────► GPIO
  3x senders ───────► I-source + filter ────────────► ADC          STM32F407
@@ -117,19 +117,19 @@ Read it left to right: raw field signals enter, each gets tamed by its condition
 
 ---
 
-## 3. Power Supply — Surviving the 24 V Vehicle Environment
+## 3. Power Supply — Surviving the 12 V Vehicle Environment
 
 The battery rail on an engine is one of the nastiest electrical environments in electronics. The supply chain is:
 
 ```
-24V battery → fuse → TVS clamp → reverse-polarity MOSFET → ferrite + bulk caps
-           → LM5164-Q1 buck (24V → 5V) → TLV75533 LDO (5V → 3.3V)
+12V battery → fuse → TVS clamp → reverse-polarity MOSFET → ferrite + bulk caps
+           → LM5164-Q1 buck (12V → 5V) → TLV75533 LDO (5V → 3.3V)
 ```
 
 ### 3.1 What the input must survive
 
 - **Cranking dips.** When the starter motor engages, it draws hundreds of amps and the "24 V" rail sags — briefly down to 9–10 V. If our 5 V and 3.3 V rails collapse during that dip, the MCU resets mid-start-sequence — unacceptable. So the input range is **9–32 V continuous**, and a bulk electrolytic capacitor stores enough charge to ride through the worst milliseconds.
-- **Load dump.** The classic automotive fault: the battery cable falls off (or is disconnected) while the charge alternator is charging hard. The alternator's field can't collapse instantly, so the rail flies up — in a 24 V system, transients approaching **60–100 V for tens of milliseconds**. Anything not designed for this dies.
+- **Load dump.** The classic automotive fault: the battery cable falls off (or is disconnected) while the charge alternator is charging hard. The alternator's field can't collapse instantly, so the rail flies up — in a 12 V system, transients approaching **60–100 V for tens of milliseconds**. Anything not designed for this dies.
 - **Reverse battery.** A mechanic connects the battery backwards. It happens constantly in the field. The design must block it harmlessly.
 - **Inductive spikes.** Every solenoid, relay coil, and injector on the machine kicks voltage spikes back onto the rail when switched off.
 
@@ -160,12 +160,12 @@ What the "24 V" rail actually looks like over a start/stop cycle:
 
 - **TVS diode (SMCJ33CA).** A **Transient Voltage Suppressor** is a purpose-built avalanche diode. Below its standoff voltage (33 V) it is invisible. When a transient exceeds its breakdown (~36–40 V) it avalanches and clamps the rail (clamping ~53 V at rated pulse current), absorbing hundreds of watts for milliseconds. It's the component that eats the load dump. "CA" = bidirectional version (also clamps negative spikes). SMC package = the physically large version, because transient energy absorption scales with die size.
 
-- **Reverse-polarity P-channel MOSFET.** The textbook answer is a series diode — but a diode drops ~0.7 V continuously, wasting power and reducing headroom during crank dips. The production trick: a **P-MOSFET with source toward the load, gate pulled to ground**. With correct battery polarity, the gate is ~24 V below the source, the FET turns fully on, and drop is just I×R_DS(on) — millivolts. With reversed battery, the gate-source voltage is the wrong polarity, the FET stays off, and (with the body diode oriented to block) no current flows. A zener protects the gate from exceeding ±V_GS(max).
+- **Reverse-polarity P-channel MOSFET.** The textbook answer is a series diode — but a diode drops ~0.7 V continuously, wasting power and reducing headroom during crank dips. The production trick: a **P-MOSFET with source toward the load, gate pulled to ground**. With correct battery polarity, the gate is ~12 V below the source, the FET turns fully on, and drop is just I×R_DS(on) — millivolts. With reversed battery, the gate-source voltage is the wrong polarity, the FET stays off, and (with the body diode oriented to block) no current flows. A zener protects the gate from exceeding ±V_GS(max).
 
   ```
                  P-channel MOSFET
               D ┌──────────┐ S
-   VBAT ────────┤   ─►|─   ├────────┬─────► +24V_PROT (to buck)
+   VBAT ────────┤   ─►|─   ├────────┬─────► +12V_PROT (to buck)
    (fused,      └────┬─────┘        │       body diode conducts first,
     TVS-clamped)     │gate          │       then FET turns on and
                      ├──[zener]─────┘       shorts it out (mV drop)
@@ -180,7 +180,7 @@ What the "24 V" rail actually looks like over a start/stop cycle:
 
 ### 3.3 The buck converter — LM5164-Q1
 
-We need 5 V from 24 V. Two ways to do that:
+We need 5 V from 12 V. Two ways to do that:
 
 - **Linear regulator:** drops (24−5) = 19 V across itself at full current. At 300 mA that's ~5.7 W of pure heat. Not viable.
 - **Buck (step-down switching) converter:** switches the input on and off at high frequency through an inductor. The inductor and output capacitor average the chopped waveform to a smooth DC at the target voltage; energy is *transferred*, not burned. Efficiency 85–92 %.
@@ -229,9 +229,9 @@ The **STM32F407VGT6** is an ST Microelectronics ARM **Cortex-M4** MCU: 168 MHz, 
 
 These read **switches**: contacts that are either open or closed. On the engine they are things like the emergency-stop mushroom button, the low-oil-pressure switch (closes when pressure is dangerously low), the high-coolant-temperature switch, a remote-start command from a BMS, a coolant-level float switch.
 
-**Why not connect a switch straight to an MCU pin?** Because the wire to that switch may be 5 metres long, running beside the starter cable through an engine bay. It will carry 24 V levels (logic thresholds far above noise), pick up spikes, and bounce. Each channel therefore has:
+**Why not connect a switch straight to an MCU pin?** Because the wire to that switch may be 5 metres long, running beside the starter cable through an engine bay. It will carry 12 V levels (logic thresholds far above noise), pick up spikes, and bounce. Each channel therefore has:
 
-1. **Resistor divider** — scales 24 V down to logic level, and sets a wetting current through the switch contacts (a few mA keeps mechanical contacts clean of oxide film).
+1. **Resistor divider** — scales 12 V down to logic level, and sets a wetting current through the switch contacts (a few mA keeps mechanical contacts clean of oxide film).
 2. **Clamp diodes** — Schottky diodes to the rail and ground, so any spike beyond the rails is diverted harmlessly.
 3. **RC low-pass filter (~1 ms)** — absorbs fast noise bursts.
 4. **Firmware debounce** — a mechanical contact physically bounces for a few ms when it closes; firmware requires N consecutive identical samples before accepting a change.
@@ -241,7 +241,7 @@ One channel, end to end:
 ```
   FIELD (harness, metres of wire)  │            ON BOARD
                                    │        +3.3V
-  +24V ──┐                         │          │
+  +12V ──┐                         │          │
           \  switch                │         ─┴─ clamp diode
            \ (e-stop, oil          │          │
   ──────────┴── pressure, ...) ────┼──[R 47k]─┼──[R 10k]──┬──────► MCU GPIO
@@ -251,7 +251,7 @@ One channel, end to end:
                                    │         ─┴─ clamp   GND
                                    │          │  diode
                                    │         GND
-                                   │   divider scales 24V→3.3V,
+                                   │   divider scales 12V→3.3V,
                                    │   diodes eat spikes, RC eats noise
 ```
 
@@ -273,7 +273,7 @@ Engine instrumentation sensors are called **senders** (the name comes from "send
 
 Feed the sender a **known current** from a precision current source (derived from the 5 V rail), and measure the voltage across it with the ADC: R = V/I. Why a current source instead of a simple pull-up resistor? With a plain pull-up, the transfer curve V(R) is nonlinear and its slope depends on the pull-up's tolerance and the 5 V rail accuracy. A current source makes V directly proportional to R — easier math, better accuracy at the low-Ω end where the oil-pressure curve lives.
 
-Each channel also gets an RC anti-alias filter and clamp diodes (the wire to a sender can short to battery positive in a chafed harness — the input must survive 24 V indefinitely).
+Each channel also gets an RC anti-alias filter and clamp diodes (the wire to a sender can short to battery positive in a chafed harness — the input must survive 12 V indefinitely).
 
 ```
    +5V
@@ -298,7 +298,7 @@ Each channel also gets an RC anti-alias filter and clamp diodes (the wire to a s
 ### 6.3 Battery voltage and charge-fail detection
 
 - **Battery voltage:** a protected resistive divider to an ADC channel. Used for battery high/low alarms and to compensate other measurements.
-- **Charge alternator D+ terminal:** the charge alternator (the small 24 V one, not the 415 V main alternator) needs a small **excitation current** fed into its D+ terminal to self-start generating; in a car this comes through the charge-warning lamp. We provide that excitation through a resistor from a switched supply, and monitor D+ voltage with a divider. Engine running but D+ low ⇒ **charge failure** alarm (broken belt, dead alternator) — a classic genset protection, because a genset that flattens its own battery cannot restart in the next power cut.
+- **Charge alternator D+ terminal:** the charge alternator (the small 12 V one, not the 415 V main alternator) needs a small **excitation current** fed into its D+ terminal to self-start generating; in a car this comes through the charge-warning lamp. We provide that excitation through a resistor from a switched supply, and monitor D+ voltage with a divider. Engine running but D+ low ⇒ **charge failure** alarm (broken belt, dead alternator) — a classic genset protection, because a genset that flattens its own battery cannot restart in the next power cut.
 
 ---
 
@@ -612,16 +612,16 @@ Every transition is guarded by **qualification timers** — mains must be dead f
 Never first-power a new board fully connected. The stages:
 
 1. **Bring-up (no AC, no engine):** current-limited bench supply; verify rails, then MCU sign-of-life, then each peripheral in isolation. A solder bridge found here costs minutes; found on a genset it costs the board.
-2. **Bench rig:** 24 V bench PSU; **signal generator pretending to be the MPU** (so the whole start sequence and overspeed logic run with no engine); potentiometers as senders; switches as digital inputs; lamps as relay loads; **one AC channel validated with 230 V through an isolation transformer** (an isolation transformer breaks the galvanic connection to the mains supply, so touching a single point of the secondary can't complete a circuit through you to earth — the standard safe way to develop mains-connected circuits); CT math validated by looping a wire N turns through the CT so a small test current looks like N× the current.
+2. **Bench rig:** 12 V bench PSU; **signal generator pretending to be the MPU** (so the whole start sequence and overspeed logic run with no engine); potentiometers as senders; switches as digital inputs; lamps as relay loads; **one AC channel validated with 230 V through an isolation transformer** (an isolation transformer breaks the galvanic connection to the mains supply, so touching a single point of the secondary can't complete a circuit through you to earth — the standard safe way to develop mains-connected circuits); CT math validated by looping a wire N turns through the CT so a small test current looks like N× the current.
 3. **Genset dry runs:** on the real engine with the **fuel solenoid deliberately held off** — cranking, crank-disconnect, e-stop verified with the engine never actually starting.
 4. **Staged commissioning:** engine control alone → generator metering → live protections → AMF transfer last, each stage supervised.
 
 The bench rig — the whole controller exercised with zero horsepower in the room:
 
 ```
- 24V bench PSU ────────────► DC power in ┌──────────────────────┐
+ 12V bench PSU ────────────► DC power in ┌──────────────────────┐
  (current limited)                       │                      │
- signal generator ─────────► MPU in      │        ECU-25        │ relay outs ──► 24V lamps
+ signal generator ─────────► MPU in      │        ECU-25        │ relay outs ──► 12V lamps
  (sine, 50mV–10V,                        │     (board under     │               (one per relay —
   freq sweep = fake engine)              │        test)         │                watch the start
  3x 10-turn pots ──────────► sender in   │                      │                sequence happen)

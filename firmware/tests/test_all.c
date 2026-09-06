@@ -7,6 +7,7 @@
 
 #include "../core/gcu_app.h"
 #include "../core/j1939.h"
+#include "../core/modbus.h"
 #include "../sim/plant.h"
 
 static int failures = 0;
@@ -141,7 +142,7 @@ static void test_charge_fail_warning_not_shutdown(void)
     run(&app, &plant, &in, &out, 7000, true); /* 70 s */
     CHECK(app.prot.active[ALARM_CHARGE_FAIL]);
     CHECK(engine_fsm_running(&app.engine)); /* warning: keeps running */
-    CHECK(out.horn);
+    CHECK(out.aux1);   /* AUX1 defaults to AUX_HORN */
 }
 
 static void test_manual_mode(void)
@@ -694,6 +695,183 @@ static void test_j1939_stale_lamps_drop(void)
     CHECK(in.ecu_comms_lost); /* run-enable held past the boot grace */
 }
 
+
+/* ------------------------------------------------------------- Modbus RTU */
+
+/* Build a request with a correct CRC appended. */
+static size_t mb_req(uint8_t *b, size_t n)
+{
+    uint16_t c = modbus_crc(b, n);
+    b[n] = (uint8_t)(c & 0xFF);
+    b[n + 1] = (uint8_t)(c >> 8);
+    return n + 2;
+}
+
+static void test_modbus_crc(void)
+{
+    /* Known-answer vector: the classic 01 04 02 FF FF frame CRC is 0xB880
+     * (low byte first on the wire). Verified against the Modbus spec. */
+    uint8_t f[] = {0x01, 0x04, 0x02, 0xFF, 0xFF};
+    CHECK(modbus_crc(f, sizeof(f)) == 0x80B8);
+
+    /* CRC of a frame including its own CRC is always zero — the property a
+     * receiver can rely on. */
+    uint8_t g[8];
+    memcpy(g, f, sizeof(f));
+    size_t n = mb_req(g, sizeof(f));
+    CHECK(modbus_crc(g, n) == 0);
+}
+
+static void test_modbus_read_input_regs(void)
+{
+    modbus_t mb;
+    modbus_init(&mb, 17);
+    uint16_t iregs[MODBUS_IREG_COUNT];
+    memset(iregs, 0, sizeof(iregs));
+    iregs[10] = 1500;   /* rpm */
+    iregs[14] = 1280;   /* 12.80 V */
+
+    uint8_t req[16], resp[64];
+    req[0] = 17; req[1] = 0x04;
+    req[2] = 0; req[3] = 10;   /* start 10 */
+    req[4] = 0; req[5] = 5;    /* 5 regs   */
+    size_t n = mb_req(req, 6);
+
+    size_t r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 3 + 10 + 2);
+    CHECK(resp[0] == 17 && resp[1] == 0x04 && resp[2] == 10);
+    CHECK(((resp[3] << 8) | resp[4]) == 1500);           /* reg 10 */
+    CHECK(((resp[11] << 8) | resp[12]) == 1280);         /* reg 14 */
+    CHECK(modbus_crc(resp, r) == 0);
+}
+
+static void test_modbus_addressing(void)
+{
+    modbus_t mb;
+    modbus_init(&mb, 17);
+    uint16_t iregs[MODBUS_IREG_COUNT] = {0};
+    uint8_t req[16], resp[64];
+
+    /* Wrong slave address: silence, and not counted as ours. */
+    req[0] = 18; req[1] = 0x04; req[2] = 0; req[3] = 0; req[4] = 0; req[5] = 1;
+    size_t n = mb_req(req, 6);
+    CHECK(modbus_rx(&mb, req, n, iregs, resp, sizeof(resp)) == 0);
+    CHECK(mb.rx_frames == 0);
+
+    /* Bad CRC: silence, counted as a CRC error. */
+    req[0] = 17;
+    n = mb_req(req, 6);
+    req[n - 1] ^= 0xFF;
+    CHECK(modbus_rx(&mb, req, n, iregs, resp, sizeof(resp)) == 0);
+    CHECK(mb.crc_errors == 1);
+
+    /* Out-of-range read: exception 02, not a silent drop. */
+    req[0] = 17; req[1] = 0x04; req[2] = 0; req[3] = 200; req[4] = 0; req[5] = 1;
+    n = mb_req(req, 6);
+    size_t r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 5);
+    CHECK(resp[1] == 0x84 && resp[2] == MODBUS_EX_ILLEGAL_ADDR);
+
+    /* Unsupported function: exception 01. */
+    req[1] = 0x08;
+    n = mb_req(req, 6);
+    r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 5 && resp[1] == 0x88 && resp[2] == MODBUS_EX_ILLEGAL_FN);
+}
+
+static void test_modbus_write_and_commands(void)
+{
+    modbus_t mb;
+    modbus_init(&mb, 17);
+    uint16_t iregs[MODBUS_IREG_COUNT] = {0};
+    uint8_t req[32], resp[64];
+
+    /* Write mode = 1 (MANUAL); echo comes back. */
+    req[0] = 17; req[1] = 0x06; req[2] = 0; req[3] = 0; req[4] = 0; req[5] = 1;
+    size_t n = mb_req(req, 6);
+    size_t r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 8 && mb.hold[0] == 1);
+
+    /* Illegal mode value is rejected and does NOT change state. */
+    req[5] = 9;
+    n = mb_req(req, 6);
+    r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 5 && resp[2] == MODBUS_EX_ILLEGAL_VALUE);
+    CHECK(mb.hold[0] == 1);
+
+    /* Alarm reset is an edge command: it latches, and reads back 0. */
+    req[3] = 2; req[5] = 1;
+    n = mb_req(req, 6);
+    (void)modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(mb.cmd_alarm_reset);
+    CHECK(mb.hold[2] == 0);
+
+    /* Broadcast writes are executed but never answered. */
+    modbus_init(&mb, 17);
+    req[0] = 0; req[1] = 0x06; req[2] = 0; req[3] = 0; req[4] = 0; req[5] = 3;
+    n = mb_req(req, 6);
+    CHECK(modbus_rx(&mb, req, n, iregs, resp, sizeof(resp)) == 0);
+    CHECK(mb.hold[0] == 3);
+}
+
+static void test_modbus_write_multiple_is_atomic(void)
+{
+    modbus_t mb;
+    modbus_init(&mb, 17);
+    uint16_t iregs[MODBUS_IREG_COUNT] = {0};
+    uint8_t req[32], resp[64];
+
+    /* Two registers, the SECOND one illegal. Nothing may be written. */
+    req[0] = 17; req[1] = 0x10;
+    req[2] = 0; req[3] = 0;     /* start 0            */
+    req[4] = 0; req[5] = 2;     /* 2 registers        */
+    req[6] = 4;                 /* 4 bytes            */
+    req[7] = 0; req[8] = 1;     /* mode = 1 (legal)   */
+    req[9] = 0; req[10] = 7;    /* remote start = 7 (illegal) */
+    size_t n = mb_req(req, 11);
+    size_t r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 5 && resp[2] == MODBUS_EX_ILLEGAL_VALUE);
+    CHECK(mb.hold[0] == 2);   /* still the AUTO default, not half-written */
+    CHECK(mb.hold[1] == 0);
+
+    /* Both legal: applied, and the echo carries start + count. */
+    req[10] = 1;
+    n = mb_req(req, 11);
+    r = modbus_rx(&mb, req, n, iregs, resp, sizeof(resp));
+    CHECK(r == 8 && mb.hold[0] == 1 && mb.hold[1] == 1);
+    CHECK(((resp[4] << 8) | resp[5]) == 2);
+}
+
+static void test_modbus_publish_snapshot(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    memset(&in, 0, sizeof(in));
+    in.rpm = 1500.0f;            in.rpm_valid = true;
+    in.oil_pressure_bar = 4.25f; in.oil_pressure_valid = true;
+    in.coolant_temp_c = -5.0f;   in.coolant_temp_valid = true;
+    in.battery_v = 13.8f;
+    in.gen_v[0] = 230.5f;
+    app.prot.active[ALARM_BATT_LOW] = true;
+
+    uint16_t iregs[MODBUS_IREG_COUNT];
+    modbus_publish(&in, &app, 1234, iregs);
+
+    CHECK(iregs[0] == 2305);          /* 230.5 V in 0.1 V   */
+    CHECK(iregs[10] == 1500);         /* rpm                */
+    CHECK(iregs[11] == 425);          /* 4.25 bar           */
+    CHECK((int16_t)iregs[12] == -50); /* -5.0 C, signed     */
+    CHECK(iregs[14] == 1380);         /* 13.80 V            */
+    CHECK(iregs[17] & (1u << ALARM_BATT_LOW));
+    CHECK(iregs[21] == 1234);
+
+    /* An invalid sensor must publish 0, never a stale or garbage reading. */
+    in.rpm_valid = false;
+    modbus_publish(&in, &app, 1234, iregs);
+    CHECK(iregs[10] == 0);
+}
+
 int main(void)
 {
     test_auto_start_on_mains_fail();
@@ -721,6 +899,12 @@ int main(void)
     test_j1939_stale_lamps_drop();
     test_j1939_red_lamp_blocks_start();
     test_j1939_reset_after_ecu_sleeps();
+    test_modbus_crc();
+    test_modbus_read_input_regs();
+    test_modbus_addressing();
+    test_modbus_write_and_commands();
+    test_modbus_write_multiple_is_atomic();
+    test_modbus_publish_snapshot();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

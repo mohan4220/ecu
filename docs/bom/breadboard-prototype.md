@@ -24,7 +24,7 @@ Production part list: [ecu25-main-bom.md](ecu25-main-bom.md) /
 
 ## Safety
 
-Read this before blocks F and G. Everything else runs at 24 V or below.
+Read this before blocks F and G. Everything else runs at 12 V or below.
 
 ### The 415 V AC sensing does not go on a breadboard
 
@@ -74,7 +74,7 @@ contacts have melted. If you are on an SMPS brick with no current limit, add a
 
 ### Relay contacts
 
-The breadboard relay's contact side switches **only** the 24 V rail or a
+The breadboard relay's contact side switches **only** the 12 V rail or a
 low-voltage lamp. Never a mains contactor coil. The production GEN/MAINS
 channels are volt-free pairs on their own terminal block (J15) precisely
 because those coils run on a separate AC source — that circuit does not belong
@@ -90,8 +90,8 @@ on a bench.
 | — | *Not* the STM32F4-Discovery | Its on-board peripherals sit on the pins this design needs: PA4–PA7 (audio codec + accelerometer) are the sender/battery/D+ ADC inputs, PB6 (codec I2C with a pull-up) is the MPU capture, PD4/PD5 are relay outputs, and PA9/PA10 are USB VBUS/ID — so USART1 debug does not work without desoldering. |
 | 1 | ST-Link V2 (clone is fine) | SWD flash + debug |
 | 1 | USB-UART adapter, 3.3 V (CP2102 / CH340) | Debug UART — PA9 TX / PA10 RX |
-| 1 | 24 V 2 A bench supply with adjustable current limit | The genset rail. The limit is the safety feature |
-| 1 | **24 V → 5 V buck module** (LM2596 or MP1584) | Stand-in for U1/L2/C5/C6. Do **not** breadboard the LM5164 — a 100 V 300 kHz switcher needs the tight PCB loop that block exists to provide |
+| 1 | 12 V 2 A bench supply with adjustable current limit | The genset rail — the real set is 12 V / 75 Ah. The limit is the safety feature |
+| 1 | **12 V → 5 V buck module** (LM2596 or MP1584) | Stand-in for U1/L2/C5/C6. Do **not** breadboard the LM5164 — a 100 V 300 kHz switcher needs the tight PCB loop that block exists to provide |
 | 2–3 | Breadboards (830-point) + jumper wire kit | One per block keeps working blocks intact |
 | 1 | **Soldering iron, solder, hookup wire** | Required: the relay (block B) and the CT burden (block F) must be soldered, not plugged |
 | 1 | Multimeter | Mandatory |
@@ -104,12 +104,12 @@ on a bench.
 
 ### Rail and decoupling convention — applies to every block
 
-- 24 V, 5 V and 3.3 V (from the dev board) with a **single common ground**
-  shared by the dev board and the 24 V supply. A missing ground bond between
+- 12 V, 5 V and 3.3 V (from the dev board) with a **single common ground**
+  shared by the dev board and the 12 V supply. A missing ground bond between
   two supplies is the most common first-time analog fault.
 - **100 nF from every IC's supply pin to ground, within one row of the pin**,
   plus 10 µF bulk per rail per breadboard. The production board carries C63–C67
-  for exactly this. An undecoupled LM358 on 24 V, or an MCP6002 driving 10 µF,
+  for exactly this. An undecoupled LM358 on 12 V, or an MCP6002 driving 10 µF,
   fed from a switching buck module, *will* oscillate — and you will blame the
   topology.
 
@@ -119,20 +119,20 @@ on a bench.
 
 Reference: [04-digital-input.png](../circuits/04-digital-input.png)
 
-**Nodes:** `+24 V → switch → R201 → node`; `node → R211 → GND`;
+**Nodes:** `+12 V → switch → R201 → node`; `node → R211 → GND`;
 `node → C201 → GND`; `node → R221 → MCU pin`; clamp diodes at the MCU pin.
 
 | Qty | Prototype part | Production | Note |
 |----:|----------------|-----------|------|
-| 1 | 10 kΩ 1/2 W | R201 | Top of divider — the 1/2 W rating is real, it eats the 24 V surge energy |
-| 1 | 3.3 kΩ | R211 | Bottom of divider → 5.95 V at the node |
-| 1 | 470 nF film | C201 | Debounce on the divider node, τ ≈ 1.17 ms |
+| 1 | 5.6 kΩ 1/2 W | R201 | Top of divider — the 1/2 W rating is real, it eats the surge energy |
+| 1 | 1.8 kΩ | R211 | Bottom of divider → 2.92 V at the node, 1.6 mA wetting current |
+| 1 | 1 µF film | C201 | Debounce on the divider node, τ ≈ 1.4 ms |
 | 1 | 10 kΩ | R221 | Node → clamp and MCU pin. This is the resistor that limits fault current into the pin |
 | 2 | 1N4148 | D10 (BAT54S) | One anode→pin, cathode→3.3 V; one anode→GND, cathode→pin. Leakage (25 nA) is actually *lower* than the BAT54S it replaces |
-| 1 | 10 kΩ (optional) | R231 + JP4 | Pull-up from the input terminal to +24 V, for **ground-switched contacts** — many panel switches close to ground rather than feeding 24 V in. Fit the pull-up **or** the field 24 V feed, never both |
+| 1 | 5.6 kΩ (optional) | R231 + JP4 | Pull-up from the input terminal to +12 V, for **ground-switched contacts** — many panel switches close to ground rather than feeding 12 V in. Fit the pull-up **or** the field 12 V feed, never both |
 | 1 | Toggle switch or jumper | Field contact | |
 
-**Test:** 5.95 V at the node with the switch closed, 0 V open; clamped pin sits
+**Test:** 2.92 V at the node with the switch closed, 0 V open; clamped pin sits
 near 4.0 V with ~0.2 mA injection, both inside the STM32's limits. Then read it
 in firmware and confirm the debounce rejects a deliberately bouncy contact.
 Build **one** channel — the other seven are identical.
@@ -149,21 +149,21 @@ and it already happened once during the PCB review):
 
 | Pin | Function |
 |-----|----------|
-| 2, 5 | **Coil** (pin 5 → +24 V, pin 2 → driver collector/drain) |
+| 2, 5 | **Coil** (pin 5 → +12 V, pin 2 → driver collector/drain) |
 | 1 | COM |
 | 3 | NO |
 | 4 | NC (unused) |
 
 **Nodes:** `MCU pin → R60 → base`; `base → R61 → GND`; `emitter → GND`;
-`collector → relay pin 2`; `relay pin 5 → +24 V`; `flyback cathode → +24 V,
+`collector → relay pin 2`; `relay pin 5 → +24 V`; `flyback cathode → +12 V,
 anode → drain`; `relay pin 1 (COM) → +24 V`; `pin 3 (NO) → load`.
 
 | Qty | Prototype part | Production | Note |
 |----:|----------------|-----------|------|
-| 1 | **G5LE-1-DC24** | K1 | Identical part. Solder short wires to its pins rather than forcing it into the breadboard |
+| 1 | **G5LE-1-DC12** | K1 | Identical part. Solder short wires to its pins rather than forcing it into the breadboard |
 | 1 | **BC337-40** (TO-92) | Q60 (2N7002K) | **Preferred.** The obvious substitute, 2N7000, is *not* logic-level: its V_GS(th) spans 0.8–3.0 V and it is characterised at 10 V gate drive, so a worst-case part barely turns on from 3.3 V. If you do use a 2N7000, measure V_GS(th) first and sort the batch. **Pinout warning: the BC337 is E-B-C from the flat face — the opposite order to the BC557B in block C.** Check both with a DMM before powering |
 | 1 | 1N5819 (DO-41) | D60 (SS34) | Flyback, **cathode to +24 V** |
-| 1 | **1 kΩ** | R60 (100 Ω) | Base resistor. The relay coil is 1.44 kΩ / 16.7 mA, so at hFE ≥ 100 the base needs 0.17 mA; 3.3 V through 1 kΩ gives 2.6 mA — 15× overdrive, hard saturation. The production 100 Ω is a MOSFET gate-stopper and has no function on a BJT: fit the 1 kΩ instead, not both |
+| 1 | **1 kΩ** | R60 (100 Ω) | Base resistor. The relay coil is 360 Ω / 33.3 mA, so at hFE ≥ 100 the base needs 0.33 mA; 3.3 V through 1 kΩ gives 2.6 mA — 15× overdrive, hard saturation. The production 100 Ω is a MOSFET gate-stopper and has no function on a BJT: fit the 1 kΩ instead, not both |
 | 1 | 100 kΩ | R61 | Base pull-down — keeps the relay off while the MCU is in reset |
 | 1 | LED, 5 mm, any colour | — | Optional indicator, **from NO (pin 3) to GND, with COM (pin 1) tied to +24 V** — in series with the 3.3 kΩ below. In parallel with the contacts it would light when the relay is *open* |
 | 1 | 3.3 kΩ | — | Series resistor for that LED: 6.7 mA, 0.15 W. A 1 kΩ would dissipate 0.48 W and cook a 1/4 W part |
@@ -198,7 +198,7 @@ The only block with a real op-amp loop, and the one most worth building.
 | 1 | **1 kΩ** | **R18** | Op-amp output → base. Limits the loop on an open sender, where the op-amp otherwise drives the base at its ~40 mA short-circuit current |
 | 1 | 1 kΩ | R23 | Series into the filter |
 | 1 | 100 nF | C20 | ADC filter |
-| 1 | **4.7 kΩ** | **R26** | Filter → clamp and ADC pin. **This is the resistor that makes the fault survival true**: with the sender shorted to +24 V it holds clamp current to ~3.6 mA, against the STM32's ±5 mA injection limit. Without it the fault drives 20 mA into the pin |
+| 1 | **4.7 kΩ** | **R26** | Filter → clamp and ADC pin. **This is the resistor that makes the fault survival true**: with the sender shorted to +12 V it holds clamp current to ~3.6 mA, against the STM32's ±5 mA injection limit. Without it the fault drives 20 mA into the pin |
 | 2 | 1N4148 | D20 (BAV199) | Clamp to 3.3 V / GND |
 | 1 | **200 Ω pot** or resistance decade box | Sender | Stands in for the oil sender, 0–184 Ω |
 
@@ -355,7 +355,7 @@ within 0.27°. A 100 k / 9.1 k pair would give 775 Hz and −3.70°, a full degr
 of extra lag, which is ~1.3 % power error and ~0.011 PF error at PF 0.8: a
 wrong number you would trust.
 
-**Test:** expect a 1.41 Vpk sine on 1.65 V (≈0.24 V to 3.06 V). Run the
+**Test:** expect a 1.41 Vpk sine on 1.65 V (≈0.12 V to 3.06 V). Run the
 firmware's RMS and frequency measurement and compare against a meter on the
 transformer output. Moving to the real board changes only the divider ratio —
 the maths, the filter and the code are already proven.

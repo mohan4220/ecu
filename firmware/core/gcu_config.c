@@ -4,6 +4,9 @@ void gcu_config_defaults(gcu_config_t *cfg)
 {
     /* Engine sequencing */
     cfg->preheat_ms = 5000;
+    /* K5/K6 defaults preserve the old fixed behaviour */
+    cfg->aux1_fn = AUX_HORN;
+    cfg->aux2_fn = AUX_PREHEAT;
     cfg->crank_ms = 8000;
     cfg->crank_rest_ms = 10000;
     cfg->crank_attempts = 3;

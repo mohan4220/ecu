@@ -16,23 +16,24 @@
 
 ![](circuits/01-power-input-protection.png)
 
-**What:** the front door of the board. Everything the 24 V battery wire carries — good or bad — passes through this circuit first.
+**What:** the front door of the board. Everything the 12 V battery wire carries — good or bad — passes through this circuit first.
 
 **Why needed:** an engine-room battery rail is hostile: cranking collapses it toward 9 V, a battery lead knocked off while charging fires a 60–100 V load-dump transient, a mechanic will eventually connect the battery backwards, and every coil on the machine kicks spikes back into the harness. Unprotected electronics die within weeks in the field.
 
 **How it works:**
 - **F1 (5 A fuse)** opens on catastrophic overcurrent — it protects the *wiring harness*, not the semiconductors (fuses act in milliseconds; chips die in microseconds).
-- **D1 (SMCJ33CA TVS)** is invisible below 33 V. A transient above its ~36 V breakdown avalanches it; it clamps the rail at roughly 53 V while absorbing the pulse energy (it is a bidirectional part even though the schematic shows a single zener symbol).
-- **Q1 (P-FET, −60 V)** blocks reverse battery. On correct connection, current initially flows through the FET's body diode, the load side rises, the gate (pulled to ground by R1) is then ~24 V below the source, and the channel turns fully on — drop falls to millivolts. Reversed battery: gate-source polarity is wrong, channel stays off, body diode blocks. **D2 (15 V zener)** stops V_GS exceeding the FET's ±20 V rating during transients.
-- **FB1 + C1 + C2** form an LC low-pass filter: the ferrite blocks MHz-range noise both directions; C1 (100 µF bulk) rides through brief dips; C2 handles high frequency.
+- **D1 (SMCJ16CA TVS)** is invisible below 16 V — above the 15 V a healthy 12 V charging system reaches. A transient beyond its ~18 V breakdown avalanches it; it clamps the rail at roughly 26 V while absorbing the pulse energy (it is a bidirectional part even though the schematic shows a single zener symbol).
+- **Q1 (P-FET, −60 V)** blocks reverse battery. On correct connection, current initially flows through the FET's body diode, the load side rises, the gate (pulled to ground by R1) is then ~12 V below the source, and the channel turns fully on — drop falls to millivolts. Reversed battery: gate-source polarity is wrong, channel stays off, body diode blocks. **D2 (12 V zener)** stops V_GS exceeding the FET's gate rating during transients.
+- **FB1 + C1 + C2** form an LC low-pass filter: the ferrite blocks MHz-range noise both directions, C2 handles high frequency.
+- **D3 + C9** are the crank reservoir. A 12 V system sags much further under crank than a 24 V one, so the logic gets a diode-isolated 2200 µF bank: D3 blocks it from draining back into the harness, and the buck runs off the cap while the starter drags the battery down. The relay coils deliberately tap *ahead* of D3 — a G5LE holds in far below its rated coil volts, so it rides the sag without eating the reservoir.
 
-**Ideal response:** DC output exactly equals input for 9–32 V; infinite-speed clamp at exactly 33 V; zero drop; zero reverse current.
+**Ideal response:** DC output exactly equals input for 8–16 V; infinite-speed clamp at exactly 16 V; zero drop; zero reverse current.
 
-**Our response:** ~20–50 mV total drop at 300 mA (fuse + FET R_DS(on)); clamp knee ~36 V, clamping to ≈53 V at rated pulse current; reverse current < 1 µA; C1 rides ≈5 ms from 24 V down to the buck's 8 V UVLO floor at 300 mA — the UVLO floor, not the fuse or FET, is the true dropout limit.
+**Our response:** ~20–50 mV total drop at 300 mA (fuse + FET R_DS(on)); clamp knee ~18 V, clamping to ≈26 V at rated pulse current; reverse current < 1 µA; C9 holds the logic for **>50 ms** from 10 V down to the 6.5 V UVLO floor with the backlight shed — that is what stops the MCU resetting mid-crank.
 
 **How to simulate (LTspice):**
 1. Voltage source → fuse (0.02 Ω resistor) → TVS (use an SMCJ33CA model from Littelfuse's site, or a 36 V zener pair back-to-back) → P-FET (any −60 V PMOS model, e.g. Si7461) with the R1/D2 gate network → 100 µF ∥ 100 nF → 100 Ω load.
-2. Three stimulus runs: (a) DC sweep −28 V → +32 V; (b) pulse 24 V → 9 V for 300 ms (crank dip); (c) ISO 7637-2 pulse-5-like load dump: 24 V baseline + 45 V exponential pulse (τ ≈ 40 ms) through 4 Ω source impedance.
+2. Three stimulus runs: (a) DC sweep −28 V → +32 V; (b) pulse 12 V → 9 V for 300 ms (crank dip); (c) ISO 7637-2 pulse-5-like load dump: 12 V baseline + 45 V exponential pulse (τ ≈ 40 ms) through 4 Ω source impedance.
 
 **Reading the result:**
 - Sweep: output ≈ input above ~3 V, exactly 0 for all negative inputs → reverse protection works. If output goes negative, the FET is drawn backwards.
@@ -43,27 +44,28 @@
 
 ---
 
-## 02 — Buck Converter (24 V → 5 V)
+## 02 — Buck Converter (12 V → 5 V)
 
-![](circuits/02-buck-24v-to-5v.png)
+![](circuits/02-buck-12v-to-5v.png)
 
 **What:** switching step-down converter, LM5164-Q1, making the 5 V rail (up to 1 A).
 
-**Why needed:** dropping 24 V→5 V linearly at 300 mA would burn ~5.7 W of heat — unusable. A buck converter transfers energy through an inductor instead of burning it: 85–92 % efficient. The LM5164 specifically because its 100 V input rating shrugs off the 53 V clamped load dump that would kill a 36 V-rated converter.
+**Why needed:** dropping 12 V→5 V linearly at 300 mA would burn ~2.1 W of heat — unusable. A buck converter transfers energy through an inductor instead of burning it: 85–92 % efficient. The LM5164 specifically because its 100 V input rating shrugs off the 53 V clamped load dump that would kill a 36 V-rated converter.
 
-**How it works:** an internal high-side switch connects VIN to L2 for a fraction D of each ~300 kHz cycle (D ≈ V_OUT/V_IN ≈ 21 %). When it opens, the internal low-side FET carries the inductor current (synchronous rectification). L2 + C5/C6 average the chopped waveform to smooth DC. The FB divider (R5/R6 = 38.3k/12.1k against the 1.2 V reference) sets V_OUT = 1.2 × (1 + 38.3/12.1) = 5.00 V. R2/R3 on EN set an 8.0 V undervoltage lockout so the converter stays alive through crank dips but shuts down cleanly on a truly dead battery. R4 on the RON pin programs the on-time — 100k gives ≈300 kHz at 5 V out. C4 bootstraps the high-side gate drive.
+**How it works:** an internal high-side switch connects VIN to L2 for a fraction D of each ~300 kHz cycle (D ≈ V_OUT/V_IN ≈ 42 %). When it opens, the internal low-side FET carries the inductor current (synchronous rectification). L2 + C5/C6 average the chopped waveform to smooth DC. The FB divider (R5/R6 = 38.3k/12.1k against the 1.2 V reference) sets V_OUT = 1.2 × (1 + 38.3/12.1) = 5.00 V. R2/R3 on EN set a **6.5 V** undervoltage lockout, and they sense the **hold-up node** rather than the battery — sensing the battery would trip EN the moment the harness sagged and switch the buck off while C9 was still full. R4 on the RON pin programs the on-time: because RON fixes on-time rather than frequency, the switching rate scales with input volts, so 12 V needs **49.9k** to sit at the same ≈300 kHz that 100k gave at 24 V. C4 bootstraps the high-side gate drive.
 
-**Ideal response:** perfectly flat 5.000 V from 9–32 V input, 0–1 A load, zero ripple, 100 % efficiency.
+**Ideal response:** perfectly flat 5.000 V from 8–16 V input, 0–1 A load, zero ripple, 100 % efficiency.
 
-**Our response:** 5.00 V ±2 %; ripple ≈ 10–30 mVpp at 300 kHz; inductor ripple current ≈ 0.40 A (40 % — acceptable for the 2 A inductor); efficiency ≈ 88 % at 24 V/0.5 A; survives input to 100 V.
+**Our response:** 5.00 V ±2 %; ripple ≈ 10–30 mVpp at 300 kHz; inductor ripple current ≈ 0.29 A (29 %); efficiency ≈ 88 % at 12 V/0.5 A; survives input to 100 V, so a load dump cannot reach it.
 
-**How to simulate (LTspice):** TI publishes an LM5164 unencrypted PSpice model — import it into LTspice (no built-in equivalent exists there). Build exactly the diagram: 33 µH, 2×22 µF, FB divider, UVLO divider, RON = 100k.
-1. **Start-up:** step VIN to 24 V, watch V_OUT rise — should settle in ~2 ms, overshoot < 5 %.
-2. **Line transient:** VIN triangle 9 → 32 → 9 V over 20 ms — V_OUT deviation < 50 mV.
+**How to simulate (LTspice):** TI publishes an LM5164 unencrypted PSpice model — import it into LTspice (no built-in equivalent exists there). Build exactly the diagram: 33 µH, 2×22 µF, FB divider, UVLO divider, RON = 49.9k.
+1. **Start-up:** step VIN to 12 V, watch V_OUT rise — should settle in ~2 ms, overshoot < 5 %.
+2. **Line transient:** VIN triangle 8 → 16 → 8 V over 20 ms — V_OUT deviation < 50 mV.
 3. **Load step:** 0.1 → 1 A in 1 µs — V_OUT dip < 150 mV, recovery < 500 µs.
-4. **UVLO:** ramp VIN 0 → 12 V slowly — converter must start at ≈8 V, not before.
+4. **UVLO:** ramp VIN 0 → 12 V slowly — converter must start at ≈6.5 V, not before.
+5. **Crank ride-through:** run at 12 V, then drop the source to 0 V for 50 ms with D3 + 2200 µF fitted — the 5 V rail must hold up.
 
-**Reading the result:** ripple much above 50 mVpp → output capacitance/ESR wrong. Ringing on SW node beyond ~1 cycle → layout/parasitic warning for the PCB. Start below 8 V in the UVLO run → R2/R3 error. Efficiency: plot V(out)×I(out) / V(in)×I(in); < 80 % means something is misconfigured (usually RON/frequency or inductor DCR).
+**Reading the result:** ripple much above 50 mVpp → output capacitance/ESR wrong. Ringing on SW node beyond ~1 cycle → layout/parasitic warning for the PCB. Start below 6.5 V in the UVLO run → R2/R3 error. Efficiency: plot V(out)×I(out) / V(in)×I(in); < 80 % means something is misconfigured (usually RON/frequency or inductor DCR).
 
 **Failure modes:** open FB divider → output runs away high (this is why R5/R6 deserve 1 % parts and clean solder); saturated (undersized) inductor → current spikes, hot chip; missing BST cap → converter never starts.
 
@@ -97,16 +99,16 @@
 
 **What:** conditions one on/off field signal (e-stop, oil-pressure switch, remote start…) from metres of engine-bay wire down to a clean MCU logic level.
 
-**Why needed:** a 5 m wire beside a starter cable picks up spikes and noise; the switch at its end bounces mechanically; some engines switch signals to +24 V, others to ground. The MCU pin needs 0–3.3 V, clean, unambiguous.
+**Why needed:** a 5 m wire beside a starter cable picks up spikes and noise; the switch at its end bounces mechanically; some engines switch signals to +12 V, others to ground. The MCU pin needs 0–3.3 V, clean, unambiguous.
 
-**How it works:** R10/R11 (10k/3.3k) divide the 24 V level by ≈4; the switch's wetting current (~1.8 mA) keeps mechanical contacts oxide-free. R13+JP4 adds an optional pull-up from the **field terminal** (upstream of R10) to +24 V, so a *ground-closing* switch also produces two distinct states: switch open → terminal pulled to 24 V → node ≈ 3.4 V → HIGH; switch closed → terminal at 0 V → LOW. (Placement matters: hung on the divider node instead, both states would read HIGH — a bug caught in review of this very document.) C10 (470 nF, τ ≈ 1.2 ms) swallows noise bursts; R12 + BAT54S clamp whatever survives to the 3.3 V rails; firmware debounces (3 consecutive 10 ms samples).
+**How it works:** R10/R11 (10k/3.3k) divide the 12 V level by ≈4; the switch's wetting current (~1.8 mA) keeps mechanical contacts oxide-free. R13+JP4 adds an optional pull-up from the **field terminal** (upstream of R10) to +12 V, so a *ground-closing* switch also produces two distinct states: switch open → terminal pulled to 12 V → node ≈ 3.4 V → HIGH; switch closed → terminal at 0 V → LOW. (Placement matters: hung on the divider node instead, both states would read HIGH — a bug caught in review of this very document.) C10 (470 nF, τ ≈ 1.2 ms) swallows noise bursts; R12 + BAT54S clamp whatever survives to the 3.3 V rails; firmware debounces (3 consecutive 10 ms samples).
 
 **Ideal response:** instant, exact translation: ≥ some threshold → logic 1, below → logic 0, immune to any noise.
 
 **Our response:** node voltage = V_in × 0.248. With STM32 thresholds (V_IH ≈ 2.31 V, V_IL ≈ 0.99 V): input ≥ ~9.3 V reads HIGH, ≤ ~4.0 V reads LOW — dead-band in between rejects floating/leaky wiring. Response delay ≈ 1.2 ms (RC) + up to 30 ms (debounce) — irrelevant for switches. Survives ±40 V continuous.
 
 **How to simulate (Falstad first — this one is satisfying to watch):**
-1. Build divider + cap + clamp diodes; drive with a switch to a 24 V source.
+1. Build divider + cap + clamp diodes; drive with a switch to a 12 V source.
 2. Add a square-wave source (1 kHz, ±10 V) through a 100 pF cap onto the input node to fake coupled noise — watch C10 eat it.
 3. In ngspice: DC sweep input −40 → +40 V; plot node voltage after R12.
 
@@ -132,7 +134,7 @@
 
 **How to simulate (ngspice/LTspice):**
 1. Ideal current source (or the real LM358+PNP+62 Ω circuit if you want to check compliance) into a resistor swept 1 Ω → 2 kΩ (DC sweep).
-2. Fault run: connect the sender node through 1 Ω to a 24 V source (wire short) — verify the node after R24 clamps ≤ 3.6 V and current into the clamp stays < 5 mA.
+2. Fault run: connect the sender node through 1 Ω to a 12 V source (wire short) — verify the node after R24 clamps ≤ 3.6 V and current into the clamp stays < 5 mA.
 3. Curve check: feed the swept voltage into a lookup of the VDO table — this is exactly the firmware's interpolation, testable in Python before C.
 
 **Reading the result:** V–R plot must be a straight line of slope = I until compliance, then flat — the flat region is your "sender open / broken wire" detection window, read it off the plot. Fault run: if clamp current exceeds a few mA, R24 is too small.
@@ -221,23 +223,23 @@
 
 ![](circuits/09-relay-driver.png)
 
-**What:** the MCU-to-relay interface: one logic pin switches one 24 V relay coil (fuel/run-enable, starter, both contactor coils, horn, glow).
+**What:** the MCU-to-relay interface: one logic pin switches one 12 V relay coil (fuel/run-enable, starter, both contactor coils, horn, glow).
 
-**Why needed:** an MCU pin sources ~8 mA at 3.3 V; a relay coil needs 16.7 mA at 24 V. And an inductive coil switched off without protection generates a voltage spike that kills the switch.
+**Why needed:** an MCU pin sources ~8 mA at 3.3 V; a G5LE-1-DC12 coil needs 33.3 mA at 12 V (360 Ω). And an inductive coil switched off without protection generates a voltage spike that kills the switch.
 
-**How it works:** R60 feeds the gate of Q60 (2N7002K — **60 V** rated, because the +24V_SW rail legitimately reaches 30 V charging and its TVS only clamps transients at ~53 V; a 30 V FET would sit at zero margin — reviewer catch). R61 (100k) pins the gate low during MCU reset/boot so relays stay off while the firmware isn't in control yet. D60 (SS34) is the flyback path: when Q60 opens, coil current keeps flowing (V = L·di/dt), circulating through D60 and decaying, clamping the drain to one diode drop above the rail.
+**How it works:** R60 feeds the gate of Q60 (2N7002K — **60 V** rated, because the +12V_SW rail legitimately reaches 30 V charging and its TVS only clamps transients at ~53 V; a 30 V FET would sit at zero margin — reviewer catch). R61 (100k) pins the gate low during MCU reset/boot so relays stay off while the firmware isn't in control yet. D60 (SS34) is the flyback path: when Q60 opens, coil current keeps flowing (V = L·di/dt), circulating through D60 and decaying, clamping the drain to one diode drop above the rail.
 
-**Ideal response:** coil energizes/de-energizes exactly with the logic pin, drain sees only 24 V.
+**Ideal response:** coil energizes/de-energizes exactly with the logic pin, drain sees only 12 V.
 
-**Our response:** turn-on < 1 µs electrical (relay armature adds ~5–10 ms mechanical); coil current 16.7 mA, FET dissipation ≈ 0.6 mW (2 Ω × 16.7 mA²) — cold; drain peak with flyback ≈ V_rail + 0.4 V; release delayed ~2–5 ms by the flyback recirculation (irrelevant here — and the firmware interlock dead-time between K3/K4 is 500 ms anyway).
+**Our response:** turn-on < 1 µs electrical (relay armature adds ~5–10 ms mechanical); coil current 33.3 mA, FET dissipation ≈ 2.2 mW (2 Ω × 33.3 mA²) — cold; drain peak with flyback ≈ V_rail + 0.4 V; release delayed ~2–5 ms by the flyback recirculation (irrelevant here — and the firmware interlock dead-time between K3/K4 is 500 ms anyway).
 
 **How to simulate (Falstad is genuinely fun for this one; LTspice for numbers):**
-1. 24 V source → coil model (360 Ω in series with 0.5 H) → NMOS drain; source to ground; 3.3 V pulse (10 Hz) via 100 Ω to gate; 100k gate-ground.
+1. 12 V source → coil model (360 Ω in series with 0.5 H) → NMOS drain; source to ground; 3.3 V pulse (10 Hz) via 100 Ω to gate; 100k gate-ground.
 2. Run once **without** D60, plot V(drain). Run again with D60.
 
 **Reading the result:** without the diode the drain spikes to hundreds of volts at every turn-off (in real life: dead FET within cycles). With it: flat clamp at ≈24.4 V. This before/after is the whole lesson of flyback in one plot. Check FET V_DS never exceeds 60 % of rating in the *with* case.
 
-**Contact wiring (KiCad):** FUEL/START/HORN/PREHEAT contacts switch +24V_SW out to J8; the GEN (K3) and MAINS (K4) contactor channels are **volt-free pairs** — COM and NO both go to terminals on a separate block J15, because contactor coils run on their own AC source (gen side / mains side respectively), and the two circuits can sit ~650 Vpk apart — J15 is an 8-pole body with only odd poles wired so the creepage between them is real (PCB review catch). K1 run-enable energizes from PREHEAT onward, not just at crank: a J1939 engine ECU gets its boot time before the starter engages, and in legacy mode the fuel solenoid is simply energized a few seconds early.
+**Contact wiring (KiCad):** FUEL/START/HORN/PREHEAT contacts switch +12V_SW out to J8; the GEN (K3) and MAINS (K4) contactor channels are **volt-free pairs** — COM and NO both go to terminals on a separate block J15, because contactor coils run on their own AC source (gen side / mains side respectively), and the two circuits can sit ~650 Vpk apart — J15 is an 8-pole body with only odd poles wired so the creepage between them is real (PCB review catch). K1 run-enable energizes from PREHEAT onward, not just at crank: a J1939 engine ECU gets its boot time before the starter engages, and in legacy mode the fuel solenoid is simply energized a few seconds early.
 
 **Failure modes:** relay contacts (not coil) wear — the fuel/starter relays switch inductive DC, hardest duty; contact rating and external suppression matter more than this driver. Firmware bug energizing K3+K4 together is caught by the panel's hardware interlock — never rely on this circuit alone.
 
@@ -341,23 +343,23 @@
 
 ---
 
-## 14 — Switched 24 V Rail (+24V_SW)
+## 14 — Switched 12 V Rail (+12V_SW)
 
-![](circuits/14-24v-switched-rail.png)
+![](circuits/14-12v-switched-rail.png)
 
 **What:** a separately-fused branch of the protected battery rail feeding the six relay coils and the D+ excitation.
 
 **Why needed:** coils are the board's biggest, dirtiest load. A stuck relay or shorted coil must not drag down the rail that feeds the MCU's buck converter — fault isolation between "muscle" supply and "brain" supply.
 
-**How it works:** F2, a PTC resettable fuse (**RXEF110, 1.1 A hold, 72 V radial** — while tripped it stands off the full rail including the ~53 V load-dump clamp, and no chip PPTC manages that at 1.1 A hold: the 1206 parts are 8 V and the 1812 parts 33 V, BOM review catch), passes the normal ≈0.1 A of six coils plus the four switched field loads but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
+**How it works:** F2, a PTC resettable fuse (**RXEF110, 1.1 A hold, 72 V radial** — while tripped it stands off the full rail including the ~53 V load-dump clamp, and no chip PPTC manages that at 1.1 A hold: the 1206 parts are 8 V and the 1812 parts 33 V, BOM review catch), passes the ≈0.2 A of six coils plus the 0.1 A D+ excitation — field loads are no longer on this rail but heats and goes high-resistance on a fault, disconnecting the branch; it self-recovers when the fault clears and it cools. D80 (SMBJ33**CA**, bidirectional across the rail) clamps the switching transients that six coils generate locally — bidirectional deliberately, so no footprint orientation can turn it into a forward diode across the rail (schematic-review catch).
 
 **Ideal response:** transparent at ≤ 0.4 A forever; instant disconnect on any fault; instant recovery.
 
-**Our response:** PTC trips in ~seconds at 2× hold current (PTCs are slow — that's fine, the harm model is thermal, not electronic); adds ~0.15 Ω series resistance (0.06 V at full coil load — irrelevant to 24 V coils); recovery after ~1 min cool-down.
+**Our response:** PTC trips in ~seconds at 2× hold current (PTCs are slow — that's fine, the harm model is thermal, not electronic); adds ~0.15 Ω series resistance (0.06 V at full coil load — irrelevant to 12 V coils); recovery after ~1 min cool-down.
 
-**How to simulate:** barely needed — one LTspice run with the PTC as a behavioral resistor (R = 0.15 Ω below 1.1 A, 100 Ω above 2.2 A after 3 s) demonstrates the isolation: short the +24V_SW output and watch +24V_PROT stay up (buck keeps running). That plot is the circuit's entire justification.
+**How to simulate:** barely needed — one LTspice run with the PTC as a behavioral resistor (R = 0.15 Ω below 1.1 A, 100 Ω above 2.2 A after 3 s) demonstrates the isolation: short the +12V_SW output and watch +12V_PROT stay up (buck keeps running). That plot is the circuit's entire justification.
 
-**Reading the result:** if +24V_PROT dips more than momentarily during the simulated coil short, C1 upstream is undersized or the fault path bypasses F2.
+**Reading the result:** if +12V_PROT dips more than momentarily during the simulated coil short, C1 upstream is undersized or the fault path bypasses F2.
 
 **Failure modes:** PTC ages (trip events raise its cold resistance); all-relays-on + hot enclosure narrows the margin to hold current — 1.1 A hold vs 0.4 A load is deliberately generous.
 
@@ -371,7 +373,7 @@
 
 **How it works:** R85/R86 (100k/6.8k = ÷15.7) scale 0–51 V into the ADC range; R87 + BAV199 clamp faults; C85 filters.
 
-**Ideal / ours:** ideal — exact ratio, instant. Ours — 24 V → 1.53 V, 32 V → 2.04 V; resolution 12.6 mV of battery per count; τ ≈ (100k∥6.8k + 4.7k)×100 nF ≈ 1.1 ms.
+**Ideal / ours:** ideal — exact ratio, instant. Ours — 12 V → 1.53 V, 32 V → 2.04 V; resolution 12.6 mV of battery per count; τ ≈ (100k∥6.8k + 4.7k)×100 nF ≈ 1.1 ms.
 
 **Simulate:** DC sweep 0–60 V in ngspice; verify linearity to 51 V and clamp beyond. One minute of work — do it inside KiCad when the sheet is drawn, as the first "the simulator works" smoke test.
 
@@ -389,7 +391,7 @@
 
 **Why needed:** a genset that quietly stops charging its own battery will fail to start at the next power cut — charge-fail is a classic, mandatory genset warning. And without excitation current (the job the dashboard warning lamp does in a car), many charge alternators never wake up at all.
 
-**How it works:** R88 (220 Ω, 5 W — sized to survive *continuous* dissipation when the alternator is dead, which is exactly the fault condition it lives through) sources ≈100 mA from +24V_SW into D+. Engine stopped: D+ sits low (alternator windings pull it down) — that's normal. Engine running: a healthy alternator drives D+ up to ≈ battery volts. The divider (÷15.7, same as ch.15) + clamp + C86 feed the ADC.
+**How it works:** R88 (220 Ω, 5 W — sized to survive *continuous* dissipation when the alternator is dead, which is exactly the fault condition it lives through) sources ≈100 mA from +12V_SW into D+. Engine stopped: D+ sits low (alternator windings pull it down) — that's normal. Engine running: a healthy alternator drives D+ up to ≈ battery volts. The divider (÷15.7, same as ch.15) + clamp + C86 feed the ADC.
 
 **Ideal / ours:** ideal — binary flag. Ours — analog: D+ ≈ 26–28 V (1.7 V at ADC) = charging; engine-running + D+ < ~50 % of battery = **charge fail** warning after a qualification delay (belt snapped, alternator dead, wire off).
 
