@@ -26,6 +26,9 @@ Notes from actually doing this:
 import sys, os, subprocess
 import pcbnew
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_ses
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PCB = os.path.abspath(os.path.join(HERE, "..", "ecu25-main", "ecu25-main.kicad_pcb"))
 
@@ -62,14 +65,11 @@ def main():
         raise SystemExit(f"freerouting produced no SES; see {log}")
     print("routed; importing session")
 
-    if not pcbnew.ImportSpecctraSES(board, ses):
-        raise SystemExit("SES import failed")
-    pcbnew.ZONE_FILLER(board).Fill(board.Zones())
-    pcbnew.SaveBoard(PCB, board)
-
-    unconn = board.GetConnectivity().GetUnconnectedCount(True)
+    # KiCad 7's pcbnew.ImportSpecctraSES() only works inside the GUI: from a
+    # script it returns False and silently does nothing, which is how a
+    # "successful" routing run ends with an unrouted board.
+    board = import_ses.import_ses(PCB, ses)
     print(f"saved {PCB}")
-    print(f"tracks: {len(board.GetTracks())}, unconnected: {unconn}")
 
     rpt = os.path.join(work, "drc.rpt")
     pcbnew.WriteDRCReport(board, rpt, pcbnew.EDA_UNITS_MILLIMETRES, False)
