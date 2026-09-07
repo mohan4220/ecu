@@ -161,6 +161,14 @@ def import_ses(pcb_path, ses_path):
     unconn = board.GetConnectivity().GetUnconnectedCount(True)
     print(f"imported {added_tracks} tracks, {added_vias} vias")
     print(f"unconnected after import: {unconn}")
+
+    # Written here rather than by the caller: route_pcb.py strips zones
+    # before exporting the DSN, and that poisons pcbnew for the rest of that
+    # process (see the note there), so it has no usable BOARD left to write a
+    # report from.
+    rpt = os.path.splitext(pcb_path)[0] + "-drc.rpt"
+    pcbnew.WriteDRCReport(board, rpt, pcbnew.EDA_UNITS_MILLIMETRES, False)
+    print("DRC report:", rpt)
     return board
 
 

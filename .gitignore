@@ -17,6 +17,7 @@ fp-info-cache
 *.ses
 hardware/kicad/ecu25-main/logs/
 hardware/kicad/ecu25-main/drc.rpt
+hardware/kicad/ecu25-main/*-drc.rpt
 hardware/kicad/ecu25-main/route.log
 
 # Firmware build
