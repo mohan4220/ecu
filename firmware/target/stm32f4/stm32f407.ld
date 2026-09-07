@@ -1,4 +1,5 @@
 /* STM32F407VGT6: 1024K flash, 128K SRAM (+64K CCM, unused here). */
+ENTRY(Reset_Handler)
 MEMORY
 {
   FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 1024K

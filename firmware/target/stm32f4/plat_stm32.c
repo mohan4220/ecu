@@ -32,7 +32,15 @@
 #define APB2_HZ     84000000u   /* timers on APB2 run at 2x = 168 MHz */
 
 #define ADC_SEQ_LEN 14u         /* 9 AC + 5 slow, one pass per trigger */
-#define ADC_SETS    8u          /* ring depth in sample sets           */
+/*
+ * Ring depth. At 3200 Hz each set is 312 us, so 64 sets is 20 ms of slack.
+ * Eight sets (2.5 ms) was not enough: a single blocking Modbus response
+ * lapped the ring ten times over and the lost samples came back as a
+ * frequency error big enough to fail the AMF mains window and start the
+ * engine. The response is interrupt-driven now, so this is the second line
+ * of defence rather than the first.
+ */
+#define ADC_SETS    64u
 
 #define MODBUS_BAUD 19200u
 /* RTU says 3.5 character times of silence ends a frame. At 19200 8N1 that
@@ -45,7 +53,9 @@
 static volatile uint32_t s_millis;
 
 static volatile uint16_t s_adc[ADC_SETS][ADC_SEQ_LEN];
-static uint32_t s_adc_tail;             /* next set the runtime will read */
+static volatile uint32_t s_dma_wraps;   /* ring wraps, counted in the ISR */
+static uint32_t s_adc_taken;            /* sets handed to the runtime     */
+static volatile bool s_adc_overrun;
 static uint16_t s_slow[PLAT_DC_COUNT];  /* latest slow channels           */
 
 static volatile uint32_t s_mpu_period_us;
@@ -54,6 +64,10 @@ static volatile uint32_t s_mpu_last_ms;
 static volatile uint8_t s_rx[MODBUS_MAX_FRAME];
 static volatile uint16_t s_rx_len;
 static volatile uint32_t s_rx_last_ms;
+
+static volatile uint8_t s_tx[MODBUS_MAX_FRAME];
+static volatile uint16_t s_tx_len, s_tx_idx;
+static volatile bool s_tx_busy;
 
 /*
  * The ADC sequence order. Index i of this table is conversion i, and the
@@ -148,10 +162,16 @@ static void adc_init(void)
                        DMA_SxCR_MINC | DMA_SxCR_CIRC |
                        (1u << DMA_SxCR_PSIZE_Pos) |  /* 16-bit */
                        (1u << DMA_SxCR_MSIZE_Pos) |
-                       (2u << DMA_SxCR_PL_Pos);
+                       (2u << DMA_SxCR_PL_Pos) |
+                       DMA_SxCR_TCIE;
+    NVIC_EnableIRQ(DMA2_Stream0_IRQn);
     DMA2_Stream0->CR |= DMA_SxCR_EN;
 
     ADC1->CR2 |= ADC_CR2_ADON;
+    /* t_STAB: the datasheet wants the ADC powered for a few microseconds
+     * before the first conversion. At 168 MHz this loop is ~30 us. */
+    for (volatile uint32_t d = 0; d < 2000; d++) {
+    }
 
     /* TIM2 update at 3200 Hz -> TRGO. 84 MHz / 26250 = 3200. */
     TIM2->PSC = 0;
@@ -166,31 +186,73 @@ static void adc_init(void)
  * yet is still valid because the ring is eight sets deep and the runtime
  * drains it every pass through the main loop.
  */
+void DMA2_Stream0_IRQHandler(void)
+{
+    if (DMA2->LISR & DMA_LISR_TCIF0) {
+        DMA2->LIFCR = DMA_LIFCR_CTCIF0;
+        s_dma_wraps++;
+    }
+}
+
+/*
+ * How many sets the DMA has finished, as a monotonic count.
+ *
+ * NDTR alone cannot answer this: it counts down and reloads on wrap, so it
+ * is an index, and an index cannot distinguish "ring empty" from "ring
+ * lapped exactly once". The transfer-complete interrupt supplies the wrap
+ * count, and the two are read with a re-check so a wrap landing between the
+ * two reads cannot pair a fresh wrap count with a stale index.
+ */
+static uint32_t adc_produced(void)
+{
+    for (;;) {
+        uint32_t w1 = s_dma_wraps;
+        uint32_t ndtr = DMA2_Stream0->NDTR;
+        uint32_t w2 = s_dma_wraps;
+        if (w1 != w2) {
+            continue;
+        }
+        uint32_t written = (ADC_SETS * ADC_SEQ_LEN) - ndtr;
+        uint32_t idx = written / ADC_SEQ_LEN;
+        if (idx >= ADC_SETS) {
+            idx = ADC_SETS - 1u;
+        }
+        return w1 * ADC_SETS + idx;
+    }
+}
+
 static bool plat_ac_sample(uint16_t *out)
 {
-    /* NDTR counts DOWN and reloads to the full length when the circular
-     * transfer wraps, so head is an index into the ring, not a monotonic
-     * counter — the tail has to be an index too. Keeping the tail monotonic
-     * looked fine until the first wrap, after which the two could never be
-     * equal again and the runtime would replay the whole ring forever. */
-    uint32_t written = (ADC_SETS * ADC_SEQ_LEN) - DMA2_Stream0->NDTR;
-    uint32_t head = written / ADC_SEQ_LEN;
-    if (head >= ADC_SETS) {
-        head = 0;   /* NDTR has just reloaded */
+    uint32_t produced = adc_produced();
+
+    /* Overrun: the loop was blocked long enough for the DMA to overwrite
+     * sets the runtime had not read. Skip to the newest full ring and say
+     * so, because the measurement window built across the hole is invalid
+     * and quietly continuing produces a confidently wrong frequency. */
+    if ((uint32_t)(produced - s_adc_taken) > ADC_SETS) {
+        s_adc_taken = produced - ADC_SETS;
+        s_adc_overrun = true;
     }
-    if (s_adc_tail == head) {
+    if (s_adc_taken == produced) {
         return false;
     }
 
-    uint32_t idx = s_adc_tail;
+    uint32_t idx = s_adc_taken % ADC_SETS;
     for (uint32_t i = 0; i < AC_CH_COUNT; i++) {
         out[i] = s_adc[idx][i];
     }
     for (uint32_t i = 0; i < PLAT_DC_COUNT; i++) {
         s_slow[i] = s_adc[idx][AC_CH_COUNT + i];
     }
-    s_adc_tail = (s_adc_tail + 1u) % ADC_SETS;
+    s_adc_taken++;
     return true;
+}
+
+static bool plat_ac_overrun(void)
+{
+    bool o = s_adc_overrun;
+    s_adc_overrun = false;
+    return o;
 }
 
 static uint16_t plat_dc_channel(int idx)
@@ -285,7 +347,11 @@ static void mpu_init(void)
 
     TIM4->PSC = 83;                 /* 84 MHz -> 1 MHz, so ticks are us */
     TIM4->ARR = 0xFFFF;
-    TIM4->CCMR1 = (1u << TIM_CCMR1_CC1S_Pos);   /* IC1 on TI1 */
+    /* IC1F = 0011: the input must be stable for 8 samples of f_DTS before an
+     * edge counts. A magnetic pickup beside a starter cable produces plenty
+     * of edges that are not teeth, and one spurious short period reads as
+     * tens of thousands of rpm. */
+    TIM4->CCMR1 = (1u << TIM_CCMR1_CC1S_Pos) | (3u << TIM_CCMR1_IC1F_Pos);
     TIM4->CCER = TIM_CCER_CC1E;                 /* rising edge */
     TIM4->DIER = TIM_DIER_CC1IE | TIM_DIER_UIE;
     TIM4->CR1 = TIM_CR1_CEN;
@@ -353,6 +419,21 @@ void USART3_IRQHandler(void)
     if (USART3->SR & (USART_SR_ORE | USART_SR_FE | USART_SR_NE)) {
         (void)USART3->DR;   /* reading DR after SR clears the error flags */
     }
+    if ((USART3->CR1 & USART_CR1_TXEIE) && (USART3->SR & USART_SR_TXE)) {
+        if (s_tx_idx < s_tx_len) {
+            USART3->DR = s_tx[s_tx_idx++];
+        } else {
+            /* Last byte handed to the shift register: stop feeding and wait
+             * for TC, because releasing DE at TXE truncates it on the wire. */
+            USART3->CR1 &= ~USART_CR1_TXEIE;
+            USART3->CR1 |= USART_CR1_TCIE;
+        }
+    }
+    if ((USART3->CR1 & USART_CR1_TCIE) && (USART3->SR & USART_SR_TC)) {
+        USART3->CR1 &= ~USART_CR1_TCIE;
+        GPIOD->BSRR = (1u << (10 + 16));   /* release the bus */
+        s_tx_busy = false;
+    }
 }
 
 /*
@@ -380,19 +461,29 @@ static size_t plat_rs485_rx(uint8_t *buf, size_t max)
     return n;
 }
 
+/*
+ * Interrupt-driven, and it has to be.
+ *
+ * A 51-byte reply to a full input-register read takes 26.6 ms at 19200 baud.
+ * Busy-waiting for that blocks the main loop, and the main loop is the only
+ * thing draining the ADC ring — so a routine SCADA poll punched a hole in
+ * the AC sample stream, which ac_sense read as missing time and turned into
+ * a frequency error large enough to fail the AMF mains window and start the
+ * engine. Nothing about that is obvious from either module on its own.
+ */
 static void plat_rs485_tx(const uint8_t *buf, size_t n)
 {
-    GPIOD->BSRR = (1u << 10);            /* DE high: drive the bus */
+    if (s_tx_busy || n == 0 || n > MODBUS_MAX_FRAME) {
+        return;
+    }
     for (size_t i = 0; i < n; i++) {
-        while (!(USART3->SR & USART_SR_TXE)) {
-        }
-        USART3->DR = buf[i];
+        s_tx[i] = buf[i];
     }
-    /* Wait for the last STOP bit before releasing DE, or the final byte is
-     * truncated on the wire — the classic half-duplex bug. */
-    while (!(USART3->SR & USART_SR_TC)) {
-    }
-    GPIOD->BSRR = (1u << (10 + 16));
+    s_tx_len = (uint16_t)n;
+    s_tx_idx = 0;
+    s_tx_busy = true;
+    GPIOD->BSRR = (1u << 10);            /* DE high: drive the bus */
+    USART3->CR1 |= USART_CR1_TXEIE;
 }
 
 /* ------------------------------------------------------------------- CAN */
@@ -415,6 +506,15 @@ static void can_init(void)
                 ((10u - 1u) << CAN_BTR_TS1_Pos) |
                 ((3u - 1u) << CAN_BTR_TS2_Pos) |
                 ((1u - 1u) << CAN_BTR_SJW_Pos);
+    /* ABOM: leave bus-off automatically.
+     *
+     * With K1 open the engine ECU is asleep, so at power-up ECU-25 is alone
+     * on the bus and its address claim is never acknowledged. The hardware
+     * retries forever, each ACK error adds 8 to the error counter, and the
+     * controller is bus-off about 16 ms after reset. Without ABOM only
+     * software can leave that state, nothing here does, and CAN stays dead
+     * for the whole power cycle — including after the engine ECU wakes up. */
+    CAN1->MCR |= CAN_MCR_ABOM;
     CAN1->MCR &= ~CAN_MCR_INRQ;
     while (CAN1->MSR & CAN_MSR_INAK) {
     }
@@ -440,6 +540,10 @@ static bool plat_can_rx(j1939_frame_t *f)
     CAN_FIFOMailBox_TypeDef *m = &CAN1->sFIFOMailBox[0];
     if ((m->RIR & CAN_RI0R_IDE) == 0) {
         CAN1->RF0R |= CAN_RF0R_RFOM0;   /* 11-bit: not J1939, drop it */
+        return false;
+    }
+    if (m->RIR & CAN_RI0R_RTR) {
+        CAN1->RF0R |= CAN_RF0R_RFOM0;   /* remote frame carries no data */
         return false;
     }
     f->id = m->RIR >> 3;
@@ -534,6 +638,7 @@ void plat_init(void)
 const ecu_platform_t PLAT_STM32 = {
     .millis = plat_millis,
     .ac_sample = plat_ac_sample,
+    .ac_overrun = plat_ac_overrun,
     .dc_channel = plat_dc_channel,
     .din_raw = plat_din_raw,
     .rpm_period_us = plat_rpm_period_us,

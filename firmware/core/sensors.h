@@ -25,9 +25,30 @@ typedef struct {
     float value; /* physical quantity at that resistance  */
 } sensor_point_t;
 
+/*
+ * Which end of the table is a FAULT, rather than just the end of the range.
+ * This has to be stated per sender, not inferred, because it depends on what
+ * the reading means and not on the shape of the curve:
+ *
+ *   oil pressure   short reads 0 bar and open reads full scale — both are
+ *                  faults, and 0 bar in particular looks exactly like a real
+ *                  low-oil shutdown
+ *   fuel float     same in principle — but note that a 0-190 ohm float has
+ *                  0 ohm INSIDE its range, so a short is physically
+ *                  indistinguishable from a full tank and no code can tell
+ *                  them apart. A sender whose table starts above 0 can
+ *   NTC coolant    a short reads HOT. That is the safe direction to be wrong
+ *                  in, so it stays valid and lets the over-temperature
+ *                  shutdown fire; only the open circuit (which reads cold and
+ *                  would mask an overheat) is a fault
+ */
+#define SENSOR_FAULT_LOW  0x1u   /* below the table is a broken sender */
+#define SENSOR_FAULT_HIGH 0x2u   /* above the table is a broken sender */
+
 typedef struct {
     const sensor_point_t *pts; /* ascending in ohms, at least 2 points */
     uint8_t n;
+    uint8_t fault_ends;        /* SENSOR_FAULT_LOW | SENSOR_FAULT_HIGH */
 } sensor_curve_t;
 
 /*

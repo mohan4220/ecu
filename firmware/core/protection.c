@@ -99,8 +99,12 @@ void protection_tick(protection_state_t *st, const gcu_config_t *cfg,
                       in->rpm < 0.8f * cfg->nominal_rpm;
     qualify(st, ALARM_UNDERSPEED, underspeed, 3000);
 
+    /* Coolant is in here too: without it, a coolant sender that fails in a
+     * direction the curve calls invalid takes the high-temperature shutdown
+     * with it and raises nothing at all. */
     bool sensors_lost = engine_running &&
-                        (!in->rpm_valid || !in->oil_pressure_valid);
+                        (!in->rpm_valid || !in->oil_pressure_valid ||
+                         !in->coolant_temp_valid);
     qualify(st, ALARM_SENSOR_LOSS, sensors_lost, 3000);
 
     /* Generator AC protections — armed only once output is expected. */

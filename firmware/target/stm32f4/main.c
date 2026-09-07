@@ -23,9 +23,10 @@ int main(void)
 
     ecu_rt_cfg_t cfg;
     ecu_rt_defaults(&cfg);
-    /* Set-specific: 25 kVA at 415 V draws 34.8 A, so 50:5 CTs. Check the
-     * ring gear tooth count against the engine before trusting rpm. */
-    ac_cal_defaults(&cfg.ac, 50.0f);
+    /* Defaults already carry ECU25_CT_PRIMARY_A; duplicating the ratio here
+     * is how the firmware and the schematic drifted apart in the first place.
+     * Check the ring gear tooth count against the engine before trusting
+     * rpm — 118 is an assumption. */
     cfg.flywheel_teeth = 118;
 
     ecu_init(&g_ecu, &PLAT_STM32, &cfg);

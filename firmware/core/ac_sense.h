@@ -87,6 +87,7 @@ typedef struct {
     ac_result_t out;
     bool valid;      /* out holds a completed window                     */
     uint32_t windows; /* completed windows since init                    */
+    uint32_t gaps;    /* windows discarded because samples were lost      */
 } ac_sense_t;
 
 /*
@@ -98,6 +99,16 @@ typedef struct {
 void ac_cal_defaults(ac_cal_t *cal, float ct_primary);
 
 void ac_sense_init(ac_sense_t *ac, const ac_cal_t *cal);
+
+/*
+ * Throw away the window being accumulated, keeping the last completed
+ * result and the DC estimate. Call this whenever the sample stream has a
+ * hole in it: the zero-crossing frequency is measured against the sample
+ * INDEX, so a gap of missing samples is read as time that did not pass, and
+ * the frequency comes out wrong by exactly the ratio of the gap. A window
+ * built from a broken stream is worse than no window at all.
+ */
+void ac_sense_reset(ac_sense_t *ac);
 
 /*
  * Feed one synchronised sample set (raw ADC counts, AC_CH_COUNT of them).

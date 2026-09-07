@@ -27,8 +27,8 @@
  *     18     alarm bitmap, high word
  *     19     total real power                        0.1 kW
  *     20     power factor                            0.001
- *            (19 and 20 read 0 until the AC sampling layer exists — see
- *            docs/io-map.md. Zero means "not measured", not "no load".)
+ *            (both come from ac_sense.c. A PF of 0.000 means "no load
+ *            above the dead band", not "measurement missing".)
  *     21     run hours, low word                     1 h
  *     22     run hours, high word                    1 h
  *

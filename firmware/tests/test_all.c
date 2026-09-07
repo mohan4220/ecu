@@ -1317,6 +1317,13 @@ static struct {
     /* AC waveform generator */
     uint32_t k;
     float mains_v_rms, gen_v_rms, i_rms;
+    j1939_frame_t can_q[8];
+    int can_n, can_tx_n;
+    uint8_t mb_req[MODBUS_MAX_FRAME];
+    size_t mb_len;
+    uint8_t mb_resp[MODBUS_MAX_FRAME];
+    size_t mb_resp_len;
+    bool ac_overrun;
 } fake;
 
 static uint32_t fk_millis(void) { return fake.ms; }
@@ -1325,10 +1332,44 @@ static uint8_t fk_din(void) { return fake.din; }
 static uint32_t fk_period(void) { return fake.period_us; }
 static void fk_relays(const gcu_outputs_t *o) { fake.last_out = *o; fake.relay_calls++; }
 static void fk_backlight(uint8_t p) { fake.backlight = p; }
-static bool fk_can_rx(j1939_frame_t *f) { (void)f; return false; }
-static void fk_can_tx(const j1939_frame_t *f) { (void)f; }
-static size_t fk_rs485_rx(uint8_t *b, size_t m) { (void)b; (void)m; return 0; }
-static void fk_rs485_tx(const uint8_t *b, size_t n) { (void)b; (void)n; }
+static bool fk_can_rx(j1939_frame_t *f)
+{
+    if (fake.can_n == 0) {
+        return false;
+    }
+    *f = fake.can_q[0];
+    for (int i = 1; i < fake.can_n; i++) {
+        fake.can_q[i - 1] = fake.can_q[i];
+    }
+    fake.can_n--;
+    return true;
+}
+static void fk_can_tx(const j1939_frame_t *f) { (void)f; fake.can_tx_n++; }
+static size_t fk_rs485_rx(uint8_t *b, size_t m)
+{
+    if (fake.mb_len == 0 || fake.mb_len > m) {
+        return 0;
+    }
+    for (size_t i = 0; i < fake.mb_len; i++) {
+        b[i] = fake.mb_req[i];
+    }
+    size_t n = fake.mb_len;
+    fake.mb_len = 0;
+    return n;
+}
+static void fk_rs485_tx(const uint8_t *b, size_t n)
+{
+    fake.mb_resp_len = n;
+    for (size_t i = 0; i < n && i < sizeof(fake.mb_resp); i++) {
+        fake.mb_resp[i] = b[i];
+    }
+}
+static bool fk_ac_overrun(void)
+{
+    bool o = fake.ac_overrun;
+    fake.ac_overrun = false;
+    return o;
+}
 static void fk_save_hours(uint32_t h) { fake.hours_saved = h; }
 static bool fk_keys(bool *s, bool *t, bool *a)
 {
@@ -1362,6 +1403,7 @@ static const ecu_platform_t FAKE_PLAT = {
     .millis = fk_millis, .ac_sample = fk_ac, .dc_channel = fk_dc,
     .din_raw = fk_din, .rpm_period_us = fk_period, .keys = fk_keys,
     .relays = fk_relays, .backlight = fk_backlight,
+    .ac_overrun = fk_ac_overrun,
     .can_rx = fk_can_rx, .can_tx = fk_can_tx,
     .rs485_rx = fk_rs485_rx, .rs485_tx = fk_rs485_tx,
     .nvm_load_hours = NULL, .nvm_save_hours = fk_save_hours,
@@ -1484,6 +1526,421 @@ static void test_ecu_runtime_survives_millis_wrap(void)
     CHECK(e.ticks - before >= 55);
 }
 
+/* ------------------------------------------- runtime: gaps in the AC stream */
+
+/* ac_sense measures frequency against the SAMPLE INDEX, so a hole in the
+ * stream reads as time that did not pass. On the target a blocking Modbus
+ * reply used to punch exactly such a hole; the platform now reports the
+ * overrun and the runtime must throw the part-built window away. */
+static void test_ac_sense_gap_discards_the_window(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+
+    /* Reference: an unbroken stream reads 50 Hz. */
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 10.0f, 50.0f, 0.0f, 2);
+    CHECK(fabsf(ac.out.gen_hz - 50.0f) < 0.1f);
+
+    /* Same stream with 40 samples (12.5 ms) missing from the middle of each
+     * window and NO reset: the frequency is badly wrong. This is the failure
+     * being defended against, so assert it really does go wrong. */
+    ac_sense_init(&ac, &cal);
+    const float lsb = 3.3f / 4095.0f;
+    float vc = 230.0f * 1.41421356f / (lsb * 235.9f);
+    float w = 2.0f * 3.14159265f * 50.0f / 3200.0f;
+    uint32_t k = 0;
+    for (int win = 0; win < 3; win++) {
+        for (int i = 0; i < 320; i++) {
+            if (i == 160) {
+                k += 40;            /* the hole */
+            }
+            uint16_t raw[AC_CH_COUNT];
+            for (int ph = 0; ph < 3; ph++) {
+                float th = w * (float)k - (float)ph * 2.0944f;
+                raw[AC_GEN_L1 + ph] = (uint16_t)(2048.0f + vc * sinf(th) + 0.5f);
+                raw[AC_MAINS_L1 + ph] = raw[AC_GEN_L1 + ph];
+                raw[AC_I_L1 + ph] = 2048;
+            }
+            ac_sense_push(&ac, raw);
+            k++;
+        }
+    }
+    CHECK(fabsf(ac.out.gen_hz - 50.0f) > 1.0f);
+
+    /* With the gap declared, the corrupted window never completes. */
+    ac_sense_init(&ac, &cal);
+    k = 0;
+    uint32_t good_windows = 0;
+    for (int win = 0; win < 3; win++) {
+        for (int i = 0; i < 320; i++) {
+            if (i == 160) {
+                k += 40;
+                ac_sense_reset(&ac);
+            }
+            uint16_t raw[AC_CH_COUNT];
+            for (int ph = 0; ph < 3; ph++) {
+                float th = w * (float)k - (float)ph * 2.0944f;
+                raw[AC_GEN_L1 + ph] = (uint16_t)(2048.0f + vc * sinf(th) + 0.5f);
+                raw[AC_MAINS_L1 + ph] = raw[AC_GEN_L1 + ph];
+                raw[AC_I_L1 + ph] = 2048;
+            }
+            if (ac_sense_push(&ac, raw)) {
+                good_windows++;
+                CHECK(fabsf(ac.out.gen_hz - 50.0f) < 0.1f);
+            }
+            k++;
+        }
+    }
+    CHECK(good_windows > 0);
+    CHECK(ac.gaps == 3);
+}
+
+/* The zero-crossing interpolation earns its keep at frequencies that do not
+ * divide the sample rate. Without it the reading quantises; the tolerance
+ * here is tight enough that removing the interpolation fails the test. */
+static void test_ac_sense_interpolation_is_load_bearing(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    const float hz[] = {47.3f, 49.7f, 50.3f, 52.9f, 61.1f};
+    for (unsigned i = 0; i < sizeof(hz) / sizeof(hz[0]); i++) {
+        ac_sense_init(&ac, &cal);
+        ac_feed(&ac, 230.0f, 5.0f, hz[i], 0.0f, 3);
+        CHECK(fabsf(ac.out.gen_hz - hz[i]) < 0.02f);
+    }
+}
+
+/* A phase whose current is below the dead band must contribute no power
+ * either, or the register set contradicts itself: watts against 0.0 A, and
+ * a power factor that has to be clamped back to 1. */
+static void test_ac_sense_light_load_is_self_consistent(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 0.20f, 50.0f, 0.0f, 2);   /* under i_dead = 0.5 A */
+    CHECK(ac.out.load_a[0] == 0.0f);
+    CHECK(ac.out.load_a[1] == 0.0f);
+    CHECK(ac.out.load_a[2] == 0.0f);
+    CHECK(ac.out.real_power_w == 0.0f);
+    CHECK(ac.out.power_factor == 0.0f);
+}
+
+/* The 64-bit accumulators are only load-bearing at large windows: at 320
+ * samples sumsq peaks around 1.8e9 and a 32-bit accumulator survives. */
+static void test_ac_sense_large_window_accumulators(void)
+{
+    ac_cal_t cal;
+    ac_cal_defaults(&cal, 50.0f);
+    cal.window = 4000;                /* 1.25 s: sumsq reaches 6.7e10 */
+    ac_sense_t ac;
+    ac_sense_init(&ac, &cal);
+    ac_feed(&ac, 230.0f, 20.0f, 50.0f, 0.0f, 1);
+    CHECK(ac.valid);
+    CHECK(fabsf(ac.out.gen_v[0] - 230.0f) < 2.0f);
+    CHECK(fabsf(ac.out.gen_hz - 50.0f) < 0.05f);
+    CHECK(fabsf(ac.out.real_power_w - 13800.0f) < 250.0f);
+}
+
+/* ------------------------------------------------- sensors: fault direction */
+
+/* On an NTC, a short to the block and a boiling engine are the same
+ * direction. Calling the short "invalid" made protection.c skip the
+ * high-coolant check entirely, so the shutdown vanished with no alarm. */
+static void test_ntc_short_still_shuts_down(void)
+{
+    bool ok;
+    float t = sensor_lookup(&SENSOR_TEMP_VDO_NTC, 0.0f, &ok);
+    CHECK(ok);                 /* must stay VALID */
+    CHECK(t >= 119.0f);        /* and read as hot */
+
+    /* An open circuit reads cold and WOULD mask an overheat, so that end
+     * must be invalid. */
+    (void)sensor_lookup(&SENSOR_TEMP_VDO_NTC, 5000.0f, &ok);
+    CHECK(!ok);
+
+    /* And the protection actually fires on the shorted sender. */
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.coolant_temp_c = t;
+    in.coolant_temp_valid = ok;
+    CHECK(in.coolant_temp_c > app.cfg.high_coolant_c);
+}
+
+/*
+ * A 0-190 ohm float has 0 ohm INSIDE its range, so a short and a full tank
+ * are the same resistance and no amount of code separates them. Pinned here
+ * so nobody "fixes" it later and starts reporting a fault on a full tank.
+ * An open circuit IS detectable and must be.
+ */
+static void test_fuel_short_is_indistinguishable_from_full(void)
+{
+    bool ok;
+    float pct = sensor_lookup(&SENSOR_FUEL_0_190, 0.0f, &ok);
+    CHECK(ok && pct > 99.0f);
+    pct = sensor_lookup(&SENSOR_FUEL_0_190, 0.05f, &ok);
+    CHECK(ok && pct > 99.0f);
+
+    (void)sensor_lookup(&SENSOR_FUEL_0_190, 400.0f, &ok);
+    CHECK(!ok);                /* open circuit is a real, detectable fault */
+}
+
+/* An invalid coolant sender must raise something. Before, it silently took
+ * the high-temperature shutdown with it. */
+static void test_invalid_coolant_raises_sensor_loss(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    gcu_outputs_t out;
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.battery_v = 13.0f;
+    in.rpm = 1500.0f;            in.rpm_valid = true;
+    in.oil_pressure_bar = 4.0f;  in.oil_pressure_valid = true;
+    in.coolant_temp_c = 0.0f;    in.coolant_temp_valid = false;
+    in.gen_v[0] = in.gen_v[1] = in.gen_v[2] = 240.0f;
+    in.gen_hz = 50.0f;
+    in.mode_auto = false;
+    in.key_start = true;
+    app.cfg.preheat_ms = 0;
+    for (int i = 0; i < 2000; i++) {
+        gcu_app_tick(&app, &in, &out);
+        in.key_start = false;
+    }
+    CHECK(app.prot.active[ALARM_SENSOR_LOSS]);
+}
+
+/* ----------------------------------------------------- runtime: the details */
+
+static j1939_frame_t eec1_frame(float rpm)
+{
+    j1939_frame_t f;
+    memset(&f, 0, sizeof(f));
+    f.id = (0x0Cu << 24) | (61444u << 8) | 0x00u;  /* PGN 61444, SA 0 */
+    f.dlc = 8;
+    uint16_t raw = (uint16_t)(rpm / 0.125f);
+    f.data[3] = (uint8_t)(raw & 0xFF);
+    f.data[4] = (uint8_t)(raw >> 8);
+    return f;
+}
+
+/* The J1939 merge is the fix that keeps a legacy engine working; it needs a
+ * test that actually puts frames on the bus. */
+static void test_ecu_runtime_j1939_merge(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    /* Analog only: the pickup is the source. */
+    fake.period_us = 339;
+    ecu_run_ms(&e, 200);
+    CHECK(e.in.rpm_valid && fabsf(e.in.rpm - 1500.0f) < 20.0f);
+
+    /* Engine ECU starts talking with a different speed: CAN wins. */
+    for (int i = 0; i < 40; i++) {
+        fake.can_q[0] = eec1_frame(1800.0f);
+        fake.can_n = 1;
+        ecu_run_ms(&e, 10);
+    }
+    CHECK(fabsf(e.in.rpm - 1800.0f) < 5.0f);
+
+    /* Bus goes quiet. Once the PGN ages out the sender must come back,
+     * NOT go invalid — that was the bug. */
+    ecu_run_ms(&e, 1500);
+    CHECK(e.in.rpm_valid);
+    CHECK(fabsf(e.in.rpm - 1500.0f) < 20.0f);
+}
+
+/* Every DIN bit, not just the E-stop: this mapping is the single source of
+ * truth for the panel legend. */
+static void test_ecu_runtime_din_assignment(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    fake.din = 0x01;              /* e-stop healthy, everything else open */
+    ecu_run_ms(&e, 100);
+    CHECK(!e.in.emergency_stop && !e.in.remote_start && !e.in.low_oil_switch &&
+          !e.in.high_coolant_switch && !e.in.low_coolant_level);
+
+    fake.din = 0x01 | 0x02;
+    ecu_run_ms(&e, 100);
+    CHECK(e.in.remote_start && !e.in.low_oil_switch);
+
+    fake.din = 0x01 | 0x04;
+    ecu_run_ms(&e, 100);
+    CHECK(e.in.low_oil_switch && !e.in.remote_start);
+
+    fake.din = 0x01 | 0x08;
+    ecu_run_ms(&e, 100);
+    CHECK(e.in.high_coolant_switch && !e.in.low_oil_switch);
+
+    fake.din = 0x01 | 0x10;
+    ecu_run_ms(&e, 100);
+    CHECK(e.in.low_coolant_level && !e.in.high_coolant_switch);
+
+    /* The three spare channels must not reach anything. */
+    fake.din = 0x01 | 0xE0;
+    ecu_run_ms(&e, 100);
+    CHECK(!e.in.remote_start && !e.in.low_oil_switch &&
+          !e.in.high_coolant_switch && !e.in.low_coolant_level);
+}
+
+/* Momentary keys must not stick into the next tick. */
+static void test_ecu_runtime_keys_are_one_shot(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+    ecu_run_ms(&e, 100);
+
+    fake.key_start = true;
+    ecu_run_ms(&e, 10);
+    fake.key_start = false;
+    ecu_run_ms(&e, 10);
+    CHECK(!e.in.key_start);
+    CHECK(!e.in.key_stop);
+}
+
+/* Run hours count the engine turning, not the fuel relay being closed. */
+static void test_ecu_runtime_run_hours(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    /* Engine stopped, but hold run_enable-ish conditions: no hours. */
+    ecu_run_ms(&e, 500);
+    CHECK(e.run_ticks == 0);
+
+    /* Engine turning: ticks accumulate one per control tick. */
+    fake.period_us = 339;
+    ecu_run_ms(&e, 1000);
+    CHECK(e.run_ticks >= 95 && e.run_ticks <= 101);
+    CHECK(e.run_hours == 0);
+
+    /* An hour is 360000 ticks at the 10 ms tick. Spelled out rather than
+     * derived from the same expression the code uses, so a wrong constant
+     * in the code cannot cancel itself out here. */
+    e.run_ticks = 359998u;
+    ecu_run_ms(&e, 40);
+    CHECK(e.run_hours == 1);
+    CHECK(fake.hours_saved == 1);
+
+    /* And it must not roll over early: well short of an hour, still zero. */
+    e.run_hours = 0;
+    e.run_ticks = 100000u;
+    ecu_run_ms(&e, 200);
+    CHECK(e.run_hours == 0);
+}
+
+/* A master that writes the mode register and then dies must not lock the
+ * panel out for the rest of the power cycle. */
+static void test_ecu_runtime_modbus_command_timeout(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+    fake.mode_auto = false;          /* panel says MANUAL */
+    ecu_run_ms(&e, 100);
+    CHECK(!e.in.mode_auto);
+
+    /* Master writes mode = AUTO (FC06, reg 0, value 2). */
+    uint8_t req[8];
+    req[0] = 1; req[1] = 0x06; req[2] = 0; req[3] = 0; req[4] = 0; req[5] = 2;
+    fake.mb_len = mb_req(req, 6);
+    memcpy(fake.mb_req, req, fake.mb_len);
+    ecu_run_ms(&e, 50);
+    CHECK(fake.mb_resp_len == 8);
+    CHECK(e.in.mode_auto);           /* remote overrides the panel */
+
+    /* Master goes silent. After the timeout the panel is back in charge. */
+    ecu_run_ms(&e, 11000);
+    CHECK(!e.in.mode_auto);
+    CHECK(!e.modbus.mode_from_remote);
+}
+
+/* A remote start command must not outlive the master that sent it. */
+static void test_ecu_runtime_remote_start_expires(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+    ecu_run_ms(&e, 100);
+
+    uint8_t req[8];
+    req[0] = 1; req[1] = 0x06; req[2] = 0; req[3] = 1; req[4] = 0; req[5] = 1;
+    fake.mb_len = mb_req(req, 6);
+    memcpy(fake.mb_req, req, fake.mb_len);
+    ecu_run_ms(&e, 50);
+    CHECK(e.in.remote_start);
+
+    ecu_run_ms(&e, 11000);
+    CHECK(!e.in.remote_start);
+    CHECK(e.modbus.hold[1] == 0);
+}
+
+/* A slow loop must not make every timer in the controller run slow. */
+static void test_ecu_runtime_catches_up_missed_ticks(void)
+{
+    fake_reset();
+    ecu_rt_cfg_t cfg;
+    ecu_rt_defaults(&cfg);
+    ecu_t e;
+    ecu_init(&e, &FAKE_PLAT, &cfg);
+
+    /* Poll every 30 ms for 3 s: 300 ticks are due. */
+    uint32_t before = e.ticks;
+    for (int i = 0; i < 100; i++) {
+        fake.ms += 30;
+        ecu_poll(&e);
+    }
+    uint32_t ran = e.ticks - before;
+    CHECK(ran >= 295 && ran <= 302);
+    CHECK(e.late_ticks > 0);      /* and it is counted, not hidden */
+}
+
+/* Reverse power has to survive the trip to the register map. */
+static void test_modbus_publishes_reverse_power(void)
+{
+    gcu_app_t app;
+    gcu_app_init(&app);
+    gcu_inputs_t in;
+    memset(&in, 0, sizeof(in));
+    uint16_t iregs[MODBUS_IREG_COUNT];
+
+    in.real_power_w = -14400.0f;
+    modbus_publish(&in, &app, 0, iregs);
+    CHECK((int16_t)iregs[19] == -144);
+
+    in.real_power_w = 14400.0f;
+    modbus_publish(&in, &app, 0, iregs);
+    CHECK((int16_t)iregs[19] == 144);
+}
+
 int main(void)
 {
     test_auto_start_on_mains_fail();
@@ -1533,6 +1990,21 @@ int main(void)
     test_ecu_runtime_converts_and_ticks();
     test_ecu_runtime_starts_the_engine();
     test_ecu_runtime_survives_millis_wrap();
+    test_ac_sense_gap_discards_the_window();
+    test_ac_sense_interpolation_is_load_bearing();
+    test_ac_sense_light_load_is_self_consistent();
+    test_ac_sense_large_window_accumulators();
+    test_ntc_short_still_shuts_down();
+    test_fuel_short_is_indistinguishable_from_full();
+    test_invalid_coolant_raises_sensor_loss();
+    test_ecu_runtime_j1939_merge();
+    test_ecu_runtime_din_assignment();
+    test_ecu_runtime_keys_are_one_shot();
+    test_ecu_runtime_run_hours();
+    test_ecu_runtime_modbus_command_timeout();
+    test_ecu_runtime_remote_start_expires();
+    test_ecu_runtime_catches_up_missed_ticks();
+    test_modbus_publishes_reverse_power();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

@@ -34,7 +34,7 @@ void ecu_rt_defaults(ecu_rt_cfg_t *cfg)
     cfg->oil = SENSOR_OIL_VDO_10BAR;
     cfg->fuel = SENSOR_FUEL_0_190;
     cfg->temp = SENSOR_TEMP_VDO_NTC;
-    ac_cal_defaults(&cfg->ac, 50.0f);
+    ac_cal_defaults(&cfg->ac, ECU25_CT_PRIMARY_A);
 }
 
 void ecu_init(ecu_t *e, const ecu_platform_t *plat, const ecu_rt_cfg_t *cfg)
@@ -123,19 +123,42 @@ static void read_speed(ecu_t *e)
  * both mean start. */
 static void apply_remote(ecu_t *e)
 {
+    /*
+     * A master that dies mid-session must not leave the set latched. Without
+     * this, one write of holding register 0 locked the panel MODE switch out
+     * for the rest of the power cycle, and a remote start stayed asserted
+     * forever after the RS485 cable was pulled. Both revert to the panel
+     * after MODBUS_TIMEOUT_TICKS of silence.
+     */
+    if (e->modbus_idle_ticks > MODBUS_TIMEOUT_TICKS) {
+        e->modbus.mode_from_remote = false;
+        e->modbus.hold[1] = 0;
+        e->modbus.cmd_lamp_test = false;
+        return;
+    }
+
     if (e->modbus.mode_from_remote) {
         switch (e->modbus.hold[0]) {
-        case 2:
-            e->in.mode_auto = true;
+        case 0:  /* OFF: neither mode wants to run */
+            e->in.mode_auto = false;
+            e->in.remote_start = false;
+            e->in.key_start = false;
             break;
-        case 1:
+        case 1:  /* MANUAL */
             e->in.mode_auto = false;
             break;
+        case 2:  /* AUTO */
+            e->in.mode_auto = true;
+            break;
+        case 3:  /* TEST: run on demand regardless of the mains */
+            e->in.mode_auto = false;
+            e->in.remote_start = true;
+            break;
         default:
-            break;   /* 0 (off) and 3 (test) leave the panel switch alone */
+            break;
         }
     }
-    if (e->modbus.hold[1]) {
+    if (e->modbus.hold[0] != 0 && e->modbus.hold[1]) {
         e->in.remote_start = true;
     }
     if (e->modbus.cmd_alarm_reset) {
@@ -165,15 +188,22 @@ static void service_modbus(ecu_t *e)
     if (n == 0) {
         return;
     }
+    e->modbus_idle_ticks = 0;
     size_t r = modbus_rx(&e->modbus, req, n, e->iregs, resp, sizeof(resp));
     if (r > 0 && e->plat->rs485_tx) {
         e->plat->rs485_tx(resp, r);
     }
 }
 
+/*
+ * Run hours count ticks with the engine actually turning, not ticks with K1
+ * closed: run-enable is asserted from PREHEAT through cooldown, so counting
+ * it would bill several minutes of service life to every failed start.
+ */
 static void accumulate_hours(ecu_t *e)
 {
-    if (!e->out.run_enable) {
+    bool running = e->in.rpm_valid && e->in.rpm > 100.0f;
+    if (!running) {
         return;
     }
     e->run_ticks++;
@@ -252,6 +282,9 @@ static void control_tick(ecu_t *e)
         e->plat->can_tx(&tx);
     }
 
+    if (e->modbus_idle_ticks < UINT32_MAX) {
+        e->modbus_idle_ticks++;
+    }
     accumulate_hours(e);
     modbus_publish(&e->in, &e->app, e->run_hours, e->iregs);
 
@@ -266,6 +299,9 @@ bool ecu_poll(ecu_t *e)
     /* Drain the AC pipeline every pass: at 3200 Hz a 10 ms tick brings 32
      * sample sets, and the DMA half-buffer must be emptied faster than it
      * fills or a whole window is lost. */
+    if (e->plat->ac_overrun && e->plat->ac_overrun()) {
+        ac_sense_reset(&e->ac);
+    }
     uint16_t raw[AC_CH_COUNT];
     int guard = 4 * AC_MAX_WINDOW;
     while (guard-- > 0 && e->plat->ac_sample && e->plat->ac_sample(raw)) {
@@ -286,11 +322,29 @@ bool ecu_poll(ecu_t *e)
         return false;
     }
     e->last_tick_ms += GCU_TICK_MS;
-    /* If the loop fell badly behind (a long flash write, a debugger halt),
-     * give up on catching every missed tick and resynchronise. */
-    if ((uint32_t)(now - e->last_tick_ms) > 10u * GCU_TICK_MS) {
+    control_tick(e);
+
+    /*
+     * Catch up on missed ticks rather than dropping them. Every duration in
+     * the controller is counted in ticks, so a loop that runs slow makes
+     * crank time, cooldown and every alarm qualification run slow by the
+     * same ratio — silently. Bounded, because catching up on a debugger halt
+     * of several seconds would run the FSM through hundreds of ticks with
+     * one snapshot of the inputs; past the bound the runtime resynchronises
+     * and counts the loss instead of hiding it.
+     */
+    for (int catchup = 0; catchup < 4; catchup++) {
+        if ((uint32_t)(now - e->last_tick_ms) < GCU_TICK_MS) {
+            return true;
+        }
+        e->last_tick_ms += GCU_TICK_MS;
+        e->late_ticks++;
+        control_tick(e);
+    }
+    if ((uint32_t)(now - e->last_tick_ms) >= GCU_TICK_MS) {
+        uint32_t lost = (uint32_t)(now - e->last_tick_ms) / GCU_TICK_MS;
+        e->late_ticks += lost;
         e->last_tick_ms = now;
     }
-    control_tick(e);
     return true;
 }

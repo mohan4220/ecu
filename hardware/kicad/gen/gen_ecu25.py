@@ -550,7 +550,8 @@ for name, jc, jpin, base, dref, cf, adc, yc in AC_CH:
 
 # CT channels
 j7 = conn(s, "J7", "Screw_Terminal_CT", 6, 25, 262)
-s.text((18, 250), "J7: CT1 S1/S2, CT2 S1/S2, CT3 S1/S2 (200:5 CTs on load cables)", size=1.5)
+s.text((18, 250), "J7: CT1 S1/S2, CT2 S1/S2, CT3 S1/S2 (50:5 CTs on load"
+                  " cables; 25kVA/415V = 34.8A full load)", size=1.5)
 CT_CH = [
     ("CT1", 1, 2, "R50", "D50", "U9", 1, "R51", "R52", "R53", "C50", "ACI_CT1", 130.0),
     ("CT2", 3, 4, "R55", "D51", "U9", 2, "R56", "R57", "R58", "C51", "ACI_CT2", 175.0),

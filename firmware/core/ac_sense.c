@@ -49,6 +49,16 @@ void ac_sense_init(ac_sense_t *ac, const ac_cal_t *cal)
     }
 }
 
+void ac_sense_reset(ac_sense_t *ac)
+{
+    memset(ac->sum, 0, sizeof(ac->sum));
+    memset(ac->sumsq, 0, sizeof(ac->sumsq));
+    memset(ac->sumvi, 0, sizeof(ac->sumvi));
+    memset(ac->zc, 0, sizeof(ac->zc));
+    ac->n = 0;
+    ac->gaps++;
+}
+
 /* Track rising zero crossings of one channel, in fractional sample index. */
 static void zc_step(ac_sense_t *ac, int slot, float x, uint32_t idx)
 {
@@ -124,7 +134,11 @@ static void finish_window(ac_sense_t *ac)
     float n = (float)ac->n;
     float p_total = 0.0f, s_total = 0.0f;
     for (int i = 0; i < 3; i++) {
-        if (r.gen_v[i] == 0.0f) {
+        /* Both halves must be live. Summing power from a phase whose
+         * current was suppressed by i_dead put watts into the total against
+         * a published 0.0 A, and pushed the PF ratio over 1 often enough to
+         * hit the clamp. */
+        if (r.gen_v[i] == 0.0f || r.load_a[i] == 0.0f) {
             continue;
         }
         float mvi = (float)ac->sumvi[i] / n;

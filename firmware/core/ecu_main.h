@@ -24,6 +24,26 @@
 #include "sensors.h"
 
 /* Slow ADC channels, read once per tick. */
+/* Remote commands revert to the panel after this much silence. 10 s is long
+ * enough to survive a slow poll cycle and short enough that a dead master
+ * cannot hold the set in a state nobody at the panel can change. */
+#define MODBUS_TIMEOUT_TICKS GCU_MS_TO_TICKS(10000)
+
+/*
+ * CT primary rating, in amps, for a ratio of ECU25_CT_PRIMARY_A : 5.
+ *
+ * THIS MUST MATCH THE CTs ACTUALLY CLAMPED ON THE CABLES. Current scales
+ * linearly with it, so fitting 200:5 while this says 50 makes every current
+ * read 4x low and pushes the overcurrent trip from 40 A to 160 A of real
+ * current — 4.6x the set's rating, which is no protection at all.
+ *
+ * 50:5 is the right size for a 25 kVA / 415 V set: full load is 34.8 A, which
+ * is 69 % of the channel's span, and the input still does not clip until
+ * ~117 A. The 200:5 the schematic originally called for wastes five sixths
+ * of the ADC range. The schematic text now says 50:5 to match.
+ */
+#define ECU25_CT_PRIMARY_A 50.0f
+
 enum {
     PLAT_DC_OIL = 0,
     PLAT_DC_FUEL,
@@ -40,6 +60,13 @@ typedef struct {
     /* One synchronised AC sample set (AC_CH_COUNT counts). Returns false
      * when the DMA queue is empty. */
     bool (*ac_sample)(uint16_t *out);
+
+    /* True (once) if sample sets were lost since the last call — the ADC
+     * ring overran because the loop was blocked. Optional; may be NULL on a
+     * platform that cannot detect it. The runtime throws the part-built
+     * measurement window away when this fires, because ac_sense measures
+     * frequency against the sample index and a hole reads as missing time. */
+    bool (*ac_overrun)(void);
 
     /* Latest conversion of one slow channel, in ADC counts. */
     uint16_t (*dc_channel)(int idx);
@@ -104,8 +131,10 @@ typedef struct {
 
     uint32_t last_tick_ms;
     uint32_t ticks;         /* control ticks since boot            */
+    uint32_t late_ticks;    /* ticks the loop was too slow to run   */
     uint32_t run_ticks;     /* ticks with the engine running       */
     uint32_t run_hours;
+    uint32_t modbus_idle_ticks; /* since the last frame from a master */
     bool started;
     bool din_seeded;
 } ecu_t;

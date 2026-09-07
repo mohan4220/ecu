@@ -19,7 +19,7 @@ Derived from the schematic generator (`hardware/kicad/gen/gen_ecu25.py`), the fi
 
 **Two things this map makes explicit**, because they are the most common misunderstanding about this class of controller:
 
-1. **Most engine data has two possible sources.** On this engine, rpm / oil pressure / coolant temperature / fuel level arrive over **J1939** from the engine's own ECU. The analog sender front end is the **legacy path**, kept for mechanically-governed engines and as a cross-check. The control logic never knows which source filled the value — `j1939_fill_inputs()` overwrites the same `gcu_inputs_t` that the analog path fills.
+1. **Most engine data has two possible sources.** On this engine, rpm / oil pressure / coolant temperature / fuel level arrive over **J1939** from the engine's own ECU. The analog sender front end is the **legacy path**, kept for mechanically-governed engines and as a cross-check. The control logic never knows which source filled the value: the runtime **merges** them, so a fresh J1939 value wins and a stale one leaves the sender reading standing. An unconditional overwrite would wipe four good readings the moment the bus went quiet — and permanently on a legacy engine with no ECU.
 2. **ECU-25 does not run the engine. It supervises it.** Over CAN it is a listener only: it transmits nothing but its own address claim. Its entire physical authority over the engine is one relay contact — run-enable — plus a starter pilot. See §8.
 
 ---
@@ -44,7 +44,7 @@ Neutral lands on J5-4 / J6-4. Voltages are measured **line-to-neutral**; 415 V l
 
 **Frequency is not a separate channel.** Generator and mains Hz are derived from the L1 voltage waveforms in `ac_sense.c`, by interpolated zero crossings.
 
-> **CT sizing — decide before you buy.** The schematic currently specifies 200:5. A 25 kVA / 415 V set draws 34.8 A at full load, which is 0.87 A on the secondary — about 17 % of the channel's designed swing, so most of the ADC range goes unused and light-load current is coarse. **50:5** puts full load at ~69 % of span and still does not clip until ~117 A primary (3.4 × overload). Nothing on the board changes; only the part you order. The table above assumes 50:5.
+> **CT sizing — confirm before you buy.** The schematic and firmware now both specify **50:5**, in one place each (`J7` text, and `ECU25_CT_PRIMARY_A` in `firmware/core/ecu_main.h`). Fitting a different ratio without changing that constant scales every current reading by the error. A 25 kVA / 415 V set draws 34.8 A at full load, which is 0.87 A on the secondary — about 17 % of the channel's designed swing, so most of the ADC range goes unused and light-load current is coarse. **50:5** puts full load at ~69 % of span and still does not clip until ~117 A primary (3.4 × overload). Nothing on the board changes; only the part you order. The table above assumes 50:5.
 
 ## 2. Engine sensors — the analog (legacy) path
 
@@ -84,7 +84,7 @@ Eight identical channels on J2 (plus two GND poles). Divider 5.6k / 1.8k from 12
 | 20 | DIN5 | `PE4` | `low_coolant_level` | Coolant level float switch | warning |
 | 21–23 | DIN6–8 | `PE5`–`PE7` | — | **Spare** — wired to the MCU, no function assigned | — |
 
-**The channel numbers above are not fixed anywhere yet.** The board is generic — eight identical channels — and `gcu_inputs_t` names the five functions used, but the mapping between them lives in the HAL layer. The order shown is the struct order and is the sensible default; confirm it when the HAL is written, and label the panel to match.
+**The mapping is now fixed**, in exactly one place: the `DIN_*` defines at the top of `firmware/core/ecu_main.c`. Change it there and change this table; nothing else encodes it. Label the panel to match.
 
 ## 5. Engine data over J1939
 
@@ -114,7 +114,7 @@ From the display board over the shared SPI bus (74HC165 key shift register): `ke
 | Generator / mains frequency | interpolated rising zero crossings on the L1 waveform | `ac_sense.c` |
 | Total real power (signed) | mean(v·i) − mean(v)·mean(i), per phase, summed | `ac_sense.c` |
 | Power factor | \|P\| / Σ(V_rms × I_rms) | `ac_sense.c` |
-| Run hours | accumulated per tick, stored in the M95M02 EEPROM | app |
+| Run hours | ticks with the engine actually turning (rpm > 100), not ticks with K1 closed | runtime |
 | Engine state, AMF state | state machines | `engine_fsm.c`, `amf_fsm.c` |
 | 21 alarm conditions | thresholds + qualification delays | `protection.c` |
 
@@ -212,7 +212,7 @@ The design target is DSE 4520 class — the same functional class as the Kirlosk
 | Fuel / start / gen / mains relays | yes | **yes** | all dry contacts |
 | Configurable aux relays | yes | **yes** | 2 (K5 / K6) |
 | Modbus RTU over RS485 | yes | **yes** | FC 03 / 04 / 06 / 16 |
-| Run hours | yes | **yes** | counted locally, stored in EEPROM |
+| Run hours | yes | **partial** | counted, but **not yet persisted** — the M95M02 driver is unwritten, so hours reset on every power cycle |
 | Event / alarm log | yes | **not yet** | alarms are live-only; no stored history |
 | Earth / neutral fault CT | some | **no** | would need a 4th CT channel |
 | Fuel flow / consumption | some | **no** | no flow sensor input |

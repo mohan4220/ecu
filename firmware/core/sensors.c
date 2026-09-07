@@ -12,7 +12,8 @@
 static const sensor_point_t OIL_PTS[] = {
     {10.0f, 0.0f}, {62.0f, 3.0f}, {123.0f, 6.5f}, {184.0f, 10.0f},
 };
-const sensor_curve_t SENSOR_OIL_VDO_10BAR = {OIL_PTS, 4};
+const sensor_curve_t SENSOR_OIL_VDO_10BAR = {
+    OIL_PTS, 4, SENSOR_FAULT_LOW | SENSOR_FAULT_HIGH};
 
 /* NTC coolant sender: resistance FALLS as temperature rises, so the table is
  * still ascending in ohms but descending in degrees. Six points, because an
@@ -21,14 +22,16 @@ static const sensor_point_t TEMP_PTS[] = {
     {22.0f, 120.0f}, {32.0f, 110.0f}, {51.0f, 100.0f},
     {96.0f, 80.0f},  {197.0f, 60.0f}, {323.0f, 40.0f},
 };
-const sensor_curve_t SENSOR_TEMP_VDO_NTC = {TEMP_PTS, 6};
+/* Low end deliberately NOT a fault: see SENSOR_FAULT_* in sensors.h. */
+const sensor_curve_t SENSOR_TEMP_VDO_NTC = {TEMP_PTS, 6, SENSOR_FAULT_HIGH};
 
 /* Fuel float, 0 ohm full to 190 ohm empty (the European convention; the US
  * one is 240-33 and inverted, which is exactly why this is a table). */
 static const sensor_point_t FUEL_PTS[] = {
     {0.0f, 100.0f}, {95.0f, 50.0f}, {190.0f, 0.0f},
 };
-const sensor_curve_t SENSOR_FUEL_0_190 = {FUEL_PTS, 3};
+const sensor_curve_t SENSOR_FUEL_0_190 = {
+    FUEL_PTS, 3, SENSOR_FAULT_LOW | SENSOR_FAULT_HIGH};
 
 float sensor_lookup(const sensor_curve_t *c, float ohms, bool *valid)
 {
@@ -53,14 +56,20 @@ float sensor_lookup(const sensor_curve_t *c, float ohms, bool *valid)
      * insulation to the block, or a spade pushed off a terminal.
      */
     float lo = c->pts[0].ohms, hi = c->pts[c->n - 1].ohms;
+
     if (ohms < lo) {
-        if (valid && ohms < lo * 0.5f) {
+        /* A proportional band is meaningless when the table starts at 0 ohm
+         * (a fuel float reads FULL there), so there is an absolute floor as
+         * well — otherwise a dead short reports a full tank. */
+        bool shorted = (ohms < lo * 0.5f) || (ohms < 1.0f && lo < 2.0f);
+        if (valid && shorted && (c->fault_ends & SENSOR_FAULT_LOW)) {
             *valid = false;
         }
         return c->pts[0].value;
     }
     if (ohms > hi) {
-        if (valid && ohms > hi * 1.5f) {
+        if (valid && ohms > hi * 1.5f &&
+            (c->fault_ends & SENSOR_FAULT_HIGH)) {
             *valid = false;
         }
         return c->pts[c->n - 1].value;

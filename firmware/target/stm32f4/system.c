@@ -27,12 +27,24 @@ void SystemInit(void)
     RCC->CR |= RCC_CR_HSEON;
     for (uint32_t t = 0; !(RCC->CR & RCC_CR_HSERDY); t++) {
         if (t > 0x5000u) {
-            return;   /* no crystal: stay on the 16 MHz HSI rather than hang */
+            /* No crystal. Every derived rate — SysTick, the 3200 Hz ADC
+             * trigger, the UART divisor, the CAN bit time — is hardcoded
+             * against 168 MHz, so running on the 16 MHz HSI would not be a
+             * degraded controller, it would be a confidently wrong one
+             * reporting ~525 Hz on a 50 Hz set. Hang instead and let the
+             * watchdog reset: relays stay open, which is the safe state. */
+            for (;;) {
+            }
         }
     }
 
-    PWR->CR |= PWR_CR_VOS;        /* scale 1, required above 144 MHz */
+    /* The PWR clock has to be on before PWR->CR is written, or the write
+     * lands on an unclocked peripheral and is discarded. Scale 1 happens to
+     * be the reset default on the F407, so the old order was harmless by
+     * luck rather than by design. */
     RCC->APB1ENR |= RCC_APB1ENR_PWREN;
+    (void)RCC->APB1ENR;           /* ensure the enable has landed */
+    PWR->CR |= PWR_CR_VOS;        /* scale 1, required above 144 MHz */
 
     RCC->CFGR |= RCC_CFGR_HPRE_DIV1 | RCC_CFGR_PPRE1_DIV4 |
                  RCC_CFGR_PPRE2_DIV2;

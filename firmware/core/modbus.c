@@ -78,12 +78,13 @@ void modbus_publish(const gcu_inputs_t *in, const gcu_app_t *app,
     iregs[17] = (uint16_t)(mask & 0xFFFFu);
     iregs[18] = (uint16_t)(mask >> 16);
 
-    /* Real power and PF come from the AC sampling layer, which computes
-     * mean(v*i) on the phase-matched channels. Publishing an assumed PF here
-     * would put a constant 0.800 into a SCADA trend and overstate kW at the
-     * light loads a genset actually runs at, so an unpopulated measurement
-     * publishes zero rather than a plausible-looking guess. */
-    iregs[19] = sat_u16(in->real_power_w / 100.0f); /* 0.1 kW steps  */
+    /* Real power and PF come from ac_sense.c, which computes mean(v*i) on
+     * the phase-matched channels. Publishing an assumed PF here would put a
+     * constant 0.800 into a SCADA trend and overstate kW at the light loads
+     * a genset actually runs at. */
+    /* SIGNED: sat_u16 clamped reverse power to 0, which reads as "no load"
+     * — the one condition register 19 exists to make visible. */
+    iregs[19] = sat_s16(in->real_power_w / 100.0f); /* 0.1 kW steps, signed */
     iregs[20] = sat_u16(in->power_factor * 1000.0f); /* 0.001 steps  */
     iregs[21] = (uint16_t)(run_hours & 0xFFFFu);
     iregs[22] = (uint16_t)(run_hours >> 16);
